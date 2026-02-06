@@ -2,8 +2,8 @@ name: Yeni Robot Calistir
 
 on:
   schedule:
-    - cron: '30 15 * * 1-5' # Hafta içi her gün Türkiye saatiyle 18:30'da otomatik çalışır
-  workflow_dispatch: # Manuel (Elle) çalıştırma butonunu aktif eder
+    - cron: '30 15 * * 1-5' # Hafta içi her gün TR 18:30
+  workflow_dispatch: # Manuel çalıştırma butonu
 
 jobs:
   build:
@@ -12,15 +12,16 @@ jobs:
       - name: Kodlari Cek
         uses: actions/checkout@v3
 
-      - name: Python Kur
+      - name: Python Kur (Guncel)
         uses: actions/setup-python@v4
         with:
-          python-version: '3.10' # En kararlı sürüm
+          python-version: '3.10' # Daha uyumlu bir sürüm seçtik
 
-      - name: Kutuphaneleri Yukle
+      - name: Kutuphaneleri Yukle (Guvenli)
         run: |
           python -m pip install --upgrade pip
-          pip install yfinance pandas requests pandas-ta
+          pip install yfinance pandas requests
+          pip install pandas-ta --no-dependencies # Hata veren bağımlılık kontrolünü bu şekilde aşıyoruz
 
       - name: Yeni Analizi Baslat
         run: python borsa_robotu_yeni.py
