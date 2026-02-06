@@ -1,0 +1,32 @@
+name: Yeni Robot Calistir
+
+on:
+  schedule:
+    - cron: '30 15 * * 1-5' # Hafta içi her gün TR saatiyle 18:30'da çalışır
+  workflow_dispatch: # İstediğiniz an elle çalıştırmanizi sağlar
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Kodlari Cek
+        uses: actions/checkout@v3
+
+      - name: Python Kur
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Kutuphaneleri Yukle
+        run: pip install yfinance pandas pandas-ta requests
+
+      - name: Yeni Analizi Baslat
+        run: python borsa_robotu_yeni.py
+
+      - name: Yeni Sayfayi Guncelle
+        run: |
+          git config --global user.name "HasanBot"
+          git config --global user.email "bot@hasan.com"
+          git add index_yeni.html
+          git commit -m "Yeni borsa raporu güncellendi" || exit 0
+          git push
