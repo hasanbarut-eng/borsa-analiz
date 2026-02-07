@@ -4,7 +4,7 @@ import pandas as pd
 from datetime import datetime
 import time
 
-# --- AYARLAR (HASAN BEY ÖZEL) ---
+# --- AYARLAR ---
 TOKEN = "8255121421:AAG1biq7jrgLFAbWmzOFs6D4wsPzoDUjYeM"
 CHAT_ID = "8479457745"
 
@@ -28,6 +28,7 @@ ek_liste = [
 hisseler = [h + ".IS" for h in sorted(list(set(favoriler + ek_liste)))]
 
 def rsi_hesapla(series, period=14):
+    """Pandas-ta olmadan manuel RSI hesaplama fonksiyonu."""
     delta = series.diff()
     gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
     loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
@@ -35,7 +36,6 @@ def rsi_hesapla(series, period=14):
     return 100 - (100 / (1 + rs))
 
 sonuclar = []
-print(f"🚀 {len(hisseler)} Hisse Taranıyor...")
 
 for h in hisseler:
     try:
@@ -43,74 +43,46 @@ for h in hisseler:
         if data.empty or len(data) < 20: continue
         if isinstance(data.columns, pd.MultiIndex): data.columns = data.columns.get_level_values(0)
 
-        # KRİTER 1: RSI
+        # RSI ve SMA Hesaplamaları (Kütüphanesiz)
         rsi_serisi = rsi_hesapla(data["Close"])
         son_rsi = rsi_serisi.iloc[-1]
-        
-        # KRİTER 2: SMA20
-        sma20 = data["Close"].rolling(20).mean().iloc[-1]
         son_fiyat = data["Close"].iloc[-1]
+        sma20 = data["Close"].rolling(20).mean().iloc[-1]
         
-        # KRİTER 3: HACİM
-        hacim_ort = data["Volume"].rolling(10).mean().iloc[-1]
-        son_hacim = data["Volume"].iloc[-1]
-        
+        # Puanlama Kriterleri
         puan = 0
-        if 30 < son_rsi < 65: puan += 1
+        if 30 < son_rsi < 60: puan += 1
         if son_fiyat > sma20: puan += 1
-        if son_hacim > hacim_ort: puan += 1
 
         sonuclar.append({
             "Kod": h.replace(".IS", ""),
             "Fiyat": f"{son_fiyat:.2f}",
             "RSI": f"{son_rsi:.1f}",
-            "Skor": f"{puan}/3",
+            "Skor": f"{puan}/2",
             "Fav": h.replace(".IS", "") in favoriler
         })
         time.sleep(0.1)
     except: continue
 
-# --- WEB PANELİ (DİĞER PROGRAMLARI ETKİLEMEZ) ---
-html = f"""
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset='UTF-8'>
-    <style>
-        body {{ background: #0f172a; color: white; font-family: sans-serif; padding: 20px; }}
-        table {{ width: 100%; border-collapse: collapse; background: #1e293b; }}
-        th, td {{ border: 1px solid #334155; padding: 10px; text-align: center; }}
-        th {{ background: #334155; }}
-        .fav {{ background: #1e3a8a !important; font-weight: bold; }}
-        .high {{ color: #4ade80; font-weight: bold; }}
-    </style>
-</head>
-<body>
-    <h2 align='center'>🎯 Hasan Bey Üçlü Filtre Paneli</h2>
-    <p align='center'>Taranan: {len(sonuclar)} Hisse | {datetime.now().strftime('%d/%m/%Y %H:%M')}</p>
-    <table>
-        <tr><th>Hisse</th><th>Fiyat</th><th>RSI</th><th>Skor (3 Üzerinden)</th></tr>
-"""
-# Sıralama: Favoriler en üstte, sonra skora göre
-sirali = sorted(sonuclar, key=lambda x: (not x['Fav'], -int(x['Skor'][0])))
-for s in sirali:
-    cls = "class='fav'" if s['Fav'] else ""
-    skor_renk = "class='high'" if int(s['Skor'][0]) >= 2 else ""
-    html += f"<tr {cls}><td>{s['Kod']}</td><td>{s['Fiyat']} TL</td><td>{s['RSI']}</td><td {skor_renk}>{s['Skor']}</td></tr>"
-
+# WEB PANELİ OLUŞTURMA (analiz_yeni.html olarak kaydediyoruz)
+html = f"<html><head><meta charset='UTF-8'></head><body style='background:#121212;color:white;font-family:sans-serif;padding:20px;'>"
+html += f"<h2 align='center'>🎯 Hasan Bey 120+ Analiz Paneli</h2><p align='center'>Güncelleme: {datetime.now().strftime('%H:%M')}</p>"
+html += "<table border='1' width='100%' style='border-collapse:collapse;text-align:center;'><tr style='background:#333;'><th>Hisse</th><th>Fiyat</th><th>RSI</th><th>Skor</th></tr>"
+for s in sorted(sonuclar, key=lambda x: (not x['Fav'], -int(x['Skor'][0]))):
+    renk = "#1e3a8a" if s['Fav'] else "#1e1e1e"
+    html += f"<tr style='background:{renk};'><td>{s['Kod']}</td><td>{s['Fiyat']} TL</td><td>{s['RSI']}</td><td>{s['Skor']}</td></tr>"
 html += "</table></body></html>"
-# DİKKAT: İsim analiz_yeni.html yapılarak çakışma önlendi
-with open("analiz_yeni.html", "w", encoding="utf-8") as f:
-    f.write(html)
 
-# --- TELEGRAM (SEÇENEK B) ---
+with open("analiz_yeni.html", "w", encoding="utf-8") as f: f.write(html)
+
+# TELEGRAM GÖNDERİMİ
 try:
     if sonuclar:
-        msg = f"🚀 *HASAN BEY ÜÇLÜ ANALİZ*\n✅ Taranan: {len(sonuclar)} Hisse\n\n"
+        msg = f"🚀 *HASAN BEY 120+ RAPORU*\n✅ Taranan: {len(sonuclar)} Hisse\n\n"
         for f in sonuclar:
-            if int(f['Skor'][0]) >= 2: # Sadece 2 ve 3 puan alanları gönder
+            if int(f['Skor'][0]) >= 1:
                 emoji = "💎" if f['Fav'] else "✅"
-                line = f"{emoji} *{f['Kod']}*: {f['Fiyat']} (Skor: {f['Skor']})\n"
+                line = f"{emoji} *{f['Kod']}*: {f['Fiyat']} (RSI: {f['RSI']})\n"
                 if len(msg) + len(line) > 4000:
                     requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", data={"chat_id": CHAT_ID, "text": msg, "parse_mode": "Markdown"})
                     msg = ""
