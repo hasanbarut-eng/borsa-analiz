@@ -1,24 +1,23 @@
 name: Yeni Robot Calistir
 on:
   workflow_dispatch:
-  schedule:
-    - cron: '30 15 * * 1-5'
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0 # Tüm geçmişi çek ki çakışma olmasın
       - uses: actions/setup-python@v4
         with:
           python-version: '3.10'
-      - name: Sadece Temel Kütüphaneleri Yükle
-        run: pip install yfinance pandas requests
-      - name: Robotu Baslat
-        run: python borsa_robotu_yeni.py
-      - name: Dosyayi Kaydet
+      - run: pip install yfinance pandas requests
+      - run: python borsa_robotu_yeni.py
+      - name: Dosyalari Guncelle
         run: |
           git config --global user.name "HasanBot"
           git config --global user.email "bot@hasan.com"
           git add analiz_yeni.html
+          git pull --rebase origin main # Çakışmayı çözen kritik komut
           git commit -m "Analiz guncellendi" || exit 0
-          git push
+          git push origin main
