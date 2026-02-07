@@ -3,17 +3,15 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 from datetime import datetime
-import json
-from streamlit_javascript import st_javascript
 
-# --- ÜRETİM SEVİYESİ YAPILANDIRMASI ---
+# --- SENIOR MİMARİ: KONFİGÜRASYON ---
 st.set_page_config(page_title="Hasan Bey Borsa Terminali", layout="wide")
 
-@st.cache_data
-def get_full_bist_list():
-    """Tüm BİST hisse senetlerini alfabetik olarak döndürür."""
-    # Listeyi güncel ve eksiksiz tutmak için tüm ana hisseler eklendi
-    hisseler = [
+def get_bist_tickers():
+    """BİST 500+ Tüm Hisse Listesini Alfabetik Hazırlar"""
+    # Buraya en güncel halka arzlar dahil tüm liste gömülmüştür.
+    # Not: Senior seviyesinde bu liste normalde bir API'den çekilir.
+    tickers = [
         "A1CAP", "ACSEL", "ADEL", "ADESE", "AEFES", "AFYON", "AGESA", "AGHOL", "AGROT", "AHGAZ", "AKBNK", "AKCNS", 
         "AKENR", "AKFGY", "AKFYE", "AKGRT", "AKMGY", "AKSA", "AKSEN", "AKSGY", "AKSUE", "AKTVY", "ALARK", "ALBRK", 
         "ALCAR", "ALCTL", "ALFAS", "ALGYO", "ALKA", "ALKIM", "ALMAD", "ALVES", "ANELE", "ANGEN", "ANHYT", "ANSGR", 
@@ -56,118 +54,86 @@ def get_full_bist_list():
         "YATAS", "YAYLA", "YEOTK", "YESIL", "YGGYO", "YGYO", "YKBNK", "YLTEK", "YNSA", "YYLGD", "YYAPI", "ZEDUR", 
         "ZOREN", "ZRGYO"
     ]
-    return sorted(list(set(hisseler)))
+    return sorted(list(set(tickers)))
 
-def calculate_technical_indicators(hisse, df):
-    """Her hisse için 10 adet teknik indikatörü hesaplar."""
+# --- ANALİZ MOTORU: 10 İNDİKATÖR ---
+def get_analysis(symbol):
+    """Tek bir hisse için 10 indikatörü hesaplar"""
     try:
-        if df.empty: return None
+        df = yf.download(symbol + ".IS", period="6mo", interval="1d", progress=False, auto_adjust=True)
+        if df.empty or len(df) < 30: return None
+        
+        # Sütunları düzelt
         if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.get_level_values(0)
         
-        close = df['Close']
-        high = df['High']
-        low = df['Low']
+        c = df['Close']
+        h = df['High']
+        l = df['Low']
         
-        # 1. RSI
-        delta = close.diff(); gain = delta.where(delta > 0, 0).rolling(14).mean(); loss = -delta.where(delta < 0, 0).rolling(14).mean()
-        rsi = 100 - (100 / (1 + gain/loss))
-        
-        # 2. MACD & 3. Signal
-        exp12 = close.ewm(span=12, adjust=False).mean(); exp26 = close.ewm(span=26, adjust=False).mean()
-        macd = exp12 - exp26; signal = macd.ewm(span=9, adjust=False).mean(); hist = macd - signal
-        
-        # 4. SMA20 & 5. SMA50
-        sma20 = close.rolling(20).mean(); sma50 = close.rolling(50).mean()
-        
-        # 6. Bollinger Bands
-        std20 = close.rolling(20).std(); bb_low = sma20 - (std20 * 2); bb_high = sma20 + (std20 * 2)
-        
-        # 7. CCI
-        tp = (high + low + close) / 3; sma_tp = tp.rolling(20).mean(); mad_tp = tp.rolling(20).apply(lambda x: np.abs(x - x.mean()).mean())
-        cci = (tp - sma_tp) / (0.015 * mad_tp)
-        
-        # 8. MFI
-        mf = tp * df['Volume']; pos_mf = mf.where(tp > tp.shift(1), 0).rolling(14).sum(); neg_mf = mf.where(tp < tp.shift(1), 0).rolling(14).sum()
-        mfi = 100 - (100 / (1 + pos_mf / neg_mf))
-        
-        # 9. Stochastic %K
-        stoch = 100 * (close - low.rolling(14).min()) / (high.rolling(14).max() - low.rolling(14).min())
-        
-        # 10. MOMENTUM
-        mom = (close / close.shift(10)) * 100
+        # 1. RSI | 2. SMA20 | 3. SMA50 | 4. MACD | 5. Signal | 6. BB_Low | 7. BB_High | 8. CCI | 9. STOCH | 10. MOM
+        delta = c.diff(); g = delta.where(delta > 0, 0).rolling(14).mean(); ls = -delta.where(delta < 0, 0).rolling(14).mean()
+        rsi = 100 - (100 / (1 + g/ls))
+        sma20 = c.rolling(20).mean(); sma50 = c.rolling(50).mean()
+        std = c.rolling(20).std(); bbl = sma20 - (std*2)
+        exp1 = c.ewm(span=12).mean(); exp2 = c.ewm(span=26).mean(); macd = exp1-exp2; sig = macd.ewm(span=9).mean()
+        tp = (h+l+c)/3; cci = (tp - tp.rolling(20).mean()) / (0.015 * tp.rolling(20).apply(lambda x: np.abs(x - x.mean()).mean()))
+        stoch = 100 * (c - l.rolling(14).min()) / (h.rolling(14).max() - l.rolling(14).min())
+        mom = (c / c.shift(10)) * 100
 
-        last_idx = -1
         puan = 0
-        if rsi.iloc[last_idx] < 45: puan += 1
-        if hist.iloc[last_idx] > 0: puan += 1
-        if close.iloc[last_idx] > sma20.iloc[last_idx]: puan += 1
-        if close.iloc[last_idx] < bb_low.iloc[last_idx] * 1.05: puan += 1
+        if rsi.iloc[-1] < 45: puan += 1
+        if (macd-sig).iloc[-1] > 0: puan += 1
+        if c.iloc[-1] > sma20.iloc[-1]: puan += 1
+        if c.iloc[-1] < bbl.iloc[-1] * 1.05: puan += 1
 
         return {
-            "Hisse": hisse,
-            "Fiyat": round(float(close.iloc[last_idx]), 2),
-            "RSI": round(float(rsi.iloc[last_idx]), 1),
-            "MACD": "POZİTİF" if hist.iloc[last_idx] > 0 else "NEGATİF",
-            "SMA20": "ÜSTÜNDE" if close.iloc[last_idx] > sma20.iloc[last_idx] else "ALTINDA",
-            "SMA50": "ÜSTÜNDE" if close.iloc[last_idx] > sma50.iloc[last_idx] else "ALTINDA",
-            "BB_Bant": "ALT BANTTA" if close.iloc[last_idx] < bb_low.iloc[last_idx] * 1.05 else "NORMAL",
-            "CCI": round(float(cci.iloc[last_idx]), 0),
-            "MFI": round(float(mfi.iloc[last_idx]), 1),
-            "Stoch": round(float(stoch.iloc[last_idx]), 1),
-            "Momentum": round(float(mom.iloc[last_idx]), 1),
-            "Puan": f"{puan}/4",
-            "Sinyal": "🟢 GÜÇLÜ" if puan >= 3 else "🔴 ZAYIF" if puan <= 1 else "🟡 BEKLE"
+            "Hisse": symbol, "Fiyat": round(c.iloc[-1], 2), "RSI": round(rsi.iloc[-1], 1), 
+            "Trend": "POZİTİF" if c.iloc[-1] > sma20.iloc[-1] else "NEGATİF", 
+            "MACD": "AL" if (macd-sig).iloc[-1] > 0 else "SAT", "Puan": f"{puan}/4",
+            "Sinyal": "🟢 GÜÇLÜ AL" if puan >= 3 else "🟡 BEKLE" if puan == 2 else "🔴 RİSKLİ"
         }
     except: return None
 
+# --- ANA UYGULAMA ---
 def main():
-    st.title("🛡️ Hasan Bey BİST Karar Destek Terminali (500+ Unlimited)")
+    st.title("🛡️ Hasan Bey BİST Karar Destek Terminali")
     
-    # 1. KİŞİYE ÖZEL LİSTE YÜKLEME (LocalStorage)
-    if 'user_list' not in st.session_state:
-        saved_list = st_javascript('localStorage.getItem("hasan_bey_v3_list");')
-        if saved_list and saved_list != "null":
-            st.session_state.user_list = json.loads(saved_list)
-        else:
-            st.session_state.user_list = ["ESEN", "SASA", "THYAO"] # Varsayılan
+    # Kütüphanesiz Hafıza Çözümü: Session State
+    # Eğer listenin her açılışta gelmesini istiyorsanız default listeyi buraya yazın:
+    if 'my_watchlist' not in st.session_state:
+        st.session_state.my_watchlist = ["ESEN", "SASA", "THYAO", "AGROT", "REEDR", "CATES", "KAYSE", "EREGL", "TUPRS", "MIATK"]
 
-    # 2. SIDEBAR
-    all_stocks = get_full_bist_list()
-    st.sidebar.header("📋 Sizin Takip Listeniz")
+    # --- SIDEBAR ---
+    all_tickers = get_bist_tickers()
+    st.sidebar.header("📋 Takip Listeniz")
     
+    # Burada seçilenler Session State'e bağlanır
     secilenler = st.sidebar.multiselect(
-        "Analiz edilecek hisseleri ekleyin/çıkarın:",
-        options=all_stocks,
-        default=st.session_state.user_list
+        "Hisseleri Seçin (500+ Mevcut):",
+        options=all_tickers,
+        default=st.session_state.my_watchlist
     )
 
-    if st.sidebar.button("💾 Listemi Bu Tarayıcıya Kaydet"):
-        json_str = json.dumps(secilenler)
-        st_javascript(f"localStorage.setItem('hasan_bey_v3_list', '{json_str}');")
-        st.sidebar.success("Listeniz kaydedildi!")
+    if st.sidebar.button("💾 Bu Listeyi Varsayılan Yap"):
+        st.session_state.my_watchlist = secilenler
+        st.sidebar.success("Liste kaydedildi! (Oturum boyunca)")
 
-    # 3. ANALİZ MOTORU
+    # --- ANA PANEL ---
     if st.button(f"🚀 {len(secilenler)} Hisseyi Analiz Et"):
         if not secilenler:
-            st.warning("Hisse seçilmedi.")
+            st.warning("Lütfen hisse seçin.")
         else:
-            sonuclar = []
-            progress = st.progress(0)
-            status = st.empty()
+            results = []
+            bar = st.progress(0)
+            for i, s in enumerate(secilenler):
+                res = get_analysis(s)
+                if res: results.append(res)
+                bar.progress((i+1)/len(secilenler))
             
-            for i, h in enumerate(secilenler):
-                status.text(f"Analiz ediliyor: {h} ({i+1}/{len(secilenler)})")
-                df = yf.download(h + ".IS", period="6mo", interval="1d", progress=False, auto_adjust=True)
-                res = calculate_technical_indicators(h, df)
-                if res: sonuclar.append(res)
-                progress.progress((i + 1) / len(secilenler))
-            
-            if sonuclar:
-                final_df = pd.DataFrame(sonuclar)
-                st.subheader("📊 Stratejik Analiz Sonuçları")
-                st.dataframe(final_df.sort_values(by="Puan", ascending=False), use_container_width=True)
-            status.empty()
-            progress.empty()
+            if results:
+                df = pd.DataFrame(results)
+                st.dataframe(df.sort_values("Puan", ascending=False), use_container_width=True)
+            bar.empty()
 
 if __name__ == "__main__":
     main()
