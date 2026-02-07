@@ -8,8 +8,24 @@ import time
 TOKEN = "8255121421:AAG1biq7jrgLFAbWmzOFs6D4wsPzoDUjYeM"
 CHAT_ID = "8479457745"
 
-# 140+ HİSSE LİSTESİ (TAMAMI TARANIR)
-hisse_listesi = ["ESEN", "CATES", "KAYSE", "AGROT", "ALVES", "REEDR", "MIATK", "EUPWR", "ASTOR", "SASA", "THYAO", "ASELS", "EREGL", "AKBNK", "GARAN", "SISE", "KCHOL", "BIMAS", "TUPRS", "ISCTR", "EKGYO", "KARDMD", "PETKM", "ARCLK", "PGSUS", "KOZAL", "TCELL", "FROTO", "TOASO", "ENJSA", "GUBRF", "KONTR", "YEOTK", "SMRTG", "ALARK", "ODAS", "DOAS", "KCAER", "VAKBN", "HALKB", "ISMEN", "SAHOL", "YKBNK", "MGROS", "VESTL", "DOCO", "EGEEN", "TAVHL", "TKFEN", "ADESE", "AEFES", "AFYON", "AGESA", "AGHOL", "AKCNS", "AKENR", "AKFGY", "AKFYE", "ALBRK", "ALFAS", "ALGYO", "ALKA", "ALKIM", "ANELE", "ANGEN", "ANHYT", "ANSGR", "ARASE", "ARZUM", "ASGYO", "ASUZU", "ATAKP", "ATEKS", "AVPGY", "AYDEM", "AYGAZ", "BAGFS", "BANVT", "BERA", "BIENY", "BRLSM", "BRYAT", "BSOKE", "BTCIM", "BUCIM", "BVSAN", "CANTE", "CCOLA", "CEMTS", "CIMSA", "CWENE", "EBEBK", "ECILC", "ECZYT", "EGGUB", "ENKAI", "EUREN", "FENER", "GENIL", "GESAN", "GSDHO", "GWIND", "INVEO", "IPEKE", "ISDMR", "IZMDC", "KARSN", "KENT", "KERVT", "KLRGY", "KMPUR", "KONYA", "KORDS", "KOZAA", "LOGO", "MPARK", "NETAS", "OTKAR", "OYAKC", "QUAGR", "SKBNK", "SNGYO", "TTKOM", "TTRAK", "ULKER", "VESBE", "ZOREN", "MAGEN", "FORMT", "HUNER"]
+# 140+ EKSİKSİZ HİSSE LİSTESİ
+hisse_listesi = [
+    "ESEN", "CATES", "KAYSE", "AGROT", "ALVES", "REEDR", "MIATK", "EUPWR", "ASTOR", "SASA",
+    "THYAO", "ASELS", "EREGL", "AKBNK", "GARAN", "SISE", "KCHOL", "BIMAS", "TUPRS", "ISCTR",
+    "EKGYO", "KARDMD", "PETKM", "ARCLK", "PGSUS", "KOZAL", "TCELL", "FROTO", "TOASO", "ENJSA",
+    "GUBRF", "KONTR", "YEOTK", "SMRTG", "ALARK", "ODAS", "DOAS", "KCAER", "VAKBN", "HALKB",
+    "ISMEN", "SAHOL", "YKBNK", "MGROS", "VESTL", "DOCO", "EGEEN", "TAVHL", "TKFEN", "ADESE",
+    "AEFES", "AFYON", "AGESA", "AGHOL", "AKCNS", "AKENR", "AKFGY", "AKFYE", "ALBRK", "ALFAS",
+    "ALGYO", "ALKA", "ALKIM", "ANELE", "ANGEN", "ANHYT", "ANSGR", "ARASE", "ARZUM", "ASGYO",
+    "ASUZU", "ATAKP", "ATEKS", "AVPGY", "AYDEM", "AYGAZ", "BAGFS", "BANVT", "BERA", "BIENY",
+    "BRLSM", "BRYAT", "BSOKE", "BTCIM", "BUCIM", "BVSAN", "CANTE", "CCOLA", "CEMTS", "CIMSA",
+    "CWENE", "EBEBK", "ECILC", "ECZYT", "EGGUB", "ENKAI", "EUREN", "FENER", "GENIL", "GESAN",
+    "GSDHO", "GWIND", "INVEO", "IPEKE", "ISDMR", "IZMDC", "KARSN", "KENT", "KERVT", "KLRGY",
+    "KMPUR", "KONYA", "KORDS", "KOZAA", "LOGO", "MPARK", "NETAS", "OTKAR", "OYAKC", "QUAGR",
+    "SKBNK", "SNGYO", "TTKOM", "TTRAK", "ULKER", "VESBE", "ZOREN", "MAGEN", "FORMT", "HUNER",
+    "BRSAN", "SDTTR", "KOPOL", "SAYAS", "GLYHO", "TSKB", "BOBET", "ENERY", "TATEN", "IZENR"
+]
+
 hisseler = [h + ".IS" for h in sorted(list(set(hisse_listesi)))]
 
 def rsi_manuel(series, period=14):
@@ -47,9 +63,9 @@ for h in hisseler:
         time.sleep(0.1)
     except: continue
 
-# --- WEB GÖRÜNTÜSÜ (YESIL/KIRMIZI VE BASLIKLI) ---
-html = f"<!DOCTYPE html><html><head><meta charset='UTF-8'><style>body{{background:#000;color:#fff;text-align:center;font-family:sans-serif;}}table{{width:95%;margin:auto;border-collapse:collapse;}}th{{background:#222;color:#00d2ff;padding:15px;}}td{{padding:12px;border:1px solid #333;font-weight:bold;}}.yesil{{background:#004d00;color:#90ee90;}}.kirmizi{{background:#660000;color:#ffcccc;}}</style></head><body>"
-html += "<h2>🎯 HASAN BEY STRATEJİK ANALİZ PANELİ</h2><table><tr><th>HİSSE</th><th>FİYAT</th><th>RSI (30-65)</th><th>SMA20 (TREND)</th><th>HACİM (GÜÇ)</th><th>SKOR</th></tr>"
+# --- WEB GÖRÜNTÜSÜ ---
+html = f"<!DOCTYPE html><html><head><meta charset='UTF-8'><style>body{{background:#000;color:#fff;text-align:center;font-family:sans-serif;}}table{{width:95%;margin:auto;border-collapse:collapse;}}th{{background:#222;color:#007bff;padding:15px;border:1px solid #444;}}td{{padding:12px;border:1px solid #444;font-weight:bold;}}.yesil{{background-color:#006400;color:#fff;}}.kirmizi{{background-color:#8b0000;color:#fff;}}</style></head><body>"
+html += "<h2>🎯 HASAN BEY STRATEJİK ANALİZ (140+ HİSSE)</h2><table><tr><th>HİSSE</th><th>FİYAT</th><th>RSI (30-65)</th><th>SMA20 (TREND)</th><th>HACİM (GÜÇ)</th><th>SKOR</th></tr>"
 for s in sorted(sonuclar, key=lambda x: -x['Skor']):
     renk = "yesil" if s['Skor'] >= 2 else "kirmizi"
     html += f"<tr class='{renk}'><td>{s['Kod']}</td><td>{s['Fiyat']}</td><td>{s['RSI']}</td><td>{s['SMA']}</td><td>{s['Hacim']}</td><td>{s['Skor']}/3</td></tr>"
@@ -57,14 +73,14 @@ html += "</table></body></html>"
 
 with open("analiz_yeni.html", "w", encoding="utf-8") as f: f.write(html)
 
-# --- TELEGRAM (KESİN İLK 5 FİLTRESİ) ---
+# --- TELEGRAM (İLK 5 İYİ / İLK 5 KÖTÜ) ---
 try:
     iyiler = sorted([x for x in sonuclar if x['Skor'] >= 2], key=lambda x: -x['Skor'])[:5]
-    kotuler = [x for x in sonuclar if x['Skor'] == 0][:5]
+    kotuler = sorted([x for x in sonuclar if x['Skor'] == 0], key=lambda x: x['Skor'])[:5]
     
-    msg = f"🚀 *HASAN BEY ANALİZ ÖZETİ*\n📅 {datetime.now().strftime('%d/%m/%Y %H:%M')}\n\n🟢 *EN İYİ 5 (GÜÇLÜ)*\n"
+    msg = f"📊 *HASAN BEY ANALİZ ÖZETİ*\n📅 {datetime.now().strftime('%d/%m/%Y %H:%M')}\n\n🟢 *EN İYİ 5*\n"
     for i in iyiler: msg += f"✳️ {i['Kod']}: {i['Fiyat']} (Skor: {i['Skor']}/3)\n"
-    msg += "\n🔴 *EN KÖTÜ 5 (RİSKLİ)*\n"
+    msg += "\n🔴 *EN KÖTÜ 5*\n"
     for k in kotuler: msg += f"❌ {k['Kod']}: {k['Fiyat']}\n"
     
     requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", data={"chat_id": CHAT_ID, "text": msg, "parse_mode": "Markdown"})
