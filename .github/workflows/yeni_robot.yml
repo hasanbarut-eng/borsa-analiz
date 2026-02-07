@@ -20,4 +20,4 @@ jobs:
           git add analiz_yeni.html
           git pull --rebase origin main # Çakışmayı çözen kritik komut
           git commit -m "Analiz guncellendi" || exit 0
-          git push origin main
+          git push -f origin main # Zorla gonder, engelleri as
