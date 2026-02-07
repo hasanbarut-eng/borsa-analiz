@@ -7,17 +7,16 @@ jobs:
     steps:
       - uses: actions/checkout@v3
         with:
-          fetch-depth: 0 # Tüm geçmişi çek ki çakışma olmasın
+          fetch-depth: 0
       - uses: actions/setup-python@v4
         with:
           python-version: '3.10'
       - run: pip install yfinance pandas requests
       - run: python borsa_robotu_yeni.py
-      - name: Dosyalari Guncelle
+      - name: Dosyalari Zorla Guncelle
         run: |
           git config --global user.name "HasanBot"
           git config --global user.email "bot@hasan.com"
           git add analiz_yeni.html
-          git pull --rebase origin main # Çakışmayı çözen kritik komut
           git commit -m "Analiz guncellendi" || exit 0
-          git push -f origin main # Zorla gonder, engelleri as
+          git push origin main --force # Bu komut butun engelleri zorla asar
