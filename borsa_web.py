@@ -6,12 +6,11 @@ import json
 import os
 from datetime import datetime
 
-# --- 1. SİSTEM YAPILANDIRMASI ---
+# --- 1. SAYFA AYARLARI ---
 st.set_page_config(page_title="Hasan Bey Borsa Terminali", layout="wide")
 
 # --- 2. 500+ TAM HİSSE LİSTESİ ---
 def get_bist_tickers_full():
-    """Borsa İstanbul'daki 500+ hissenin tamamı"""
     tickers = [
         "A1CAP", "ACSEL", "ADEL", "ADESE", "AEFES", "AFYON", "AGESA", "AGHOL", "AGROT", "AHGAZ", "AKBNK", "AKCNS", 
         "AKENR", "AKFGY", "AKFYE", "AKGRT", "AKMGY", "AKSA", "AKSEN", "AKSGY", "AKSUE", "AKTVY", "ALARK", "ALBRK", 
@@ -57,104 +56,97 @@ def get_bist_tickers_full():
     ]
     return sorted(list(set(tickers)))
 
-# --- 3. KULLANICI VERİ YÖNETİMİ ---
-def get_user_file(name):
-    if not os.path.exists("users"):
-        os.makedirs("users")
-    return f"users/{name.lower().strip()}.json"
-
-# --- 4. 10 İNDİKATÖRLÜ ANALİZ MOTORU ---
-def profesyonel_analiz_10(symbol):
+# --- 3. 10 İNDİKATÖRLÜ ANALİZ FONKSİYONU ---
+def get_pro_analysis(symbol):
     try:
         df = yf.download(symbol + ".IS", period="1y", interval="1d", progress=False, auto_adjust=True)
         if df.empty or len(df) < 50: return None
         if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.get_level_values(0)
-        
         c, h, l = df['Close'], df['High'], df['Low']
         
-        # 1. RSI
-        delta = c.diff(); g = delta.where(delta > 0, 0).rolling(14).mean(); ls = -delta.where(delta < 0, 0).rolling(14).mean()
-        rsi_val = 100 - (100 / (1 + g/ls))
-        
-        # 2. MACD & 3. Signal
+        # Teknik Hesaplar
+        diff = c.diff(); g = diff.where(diff > 0, 0).rolling(14).mean(); ls = -diff.where(diff < 0, 0).rolling(14).mean()
+        rsi = 100 - (100 / (1 + g/ls))
         e1 = c.ewm(span=12).mean(); e2 = c.ewm(span=26).mean(); macd = e1-e2; sig = macd.ewm(span=9).mean()
-        
-        # 4. SMA20 & 5. SMA50
         s20 = c.rolling(20).mean(); s50 = c.rolling(50).mean()
-        
-        # 6. Bollinger Alt Bant
         bbl = s20 - (c.rolling(20).std() * 2)
-        
-        # 7. CCI
         tp = (h+l+c)/3; cci = (tp - tp.rolling(20).mean()) / (0.015 * tp.rolling(20).apply(lambda x: np.abs(x - x.mean()).mean()))
-        
-        # 8. MFI
-        mf = tp * df['Volume']; pmf = mf.where(tp > tp.shift(1), 0).rolling(14).sum(); nmf = mf.where(tp < tp.shift(1), 0).rolling(14).sum()
-        mfi = 100 - (100 / (1 + pmf/nmf))
-        
-        # 9. Stochastic %K
+        mf = tp * df['Volume']; pmf = mf.where(tp > tp.shift(1), 0).rolling(14).sum(); nmf = mf.where(tp < tp.shift(1), 0).rolling(14).sum(); mfi = 100 - (100 / (1 + pmf/nmf))
         stok = 100 * (c - l.rolling(14).min()) / (h.rolling(14).max() - l.rolling(14).min())
-        
-        # 10. Momentum
         mom = (c / c.shift(10)) * 100
 
-        p = sum([rsi_val.iloc[-1] < 45, (macd-sig).iloc[-1] > 0, c.iloc[-1] > s20.iloc[-1], c.iloc[-1] < bbl.iloc[-1]*1.05])
+        p = sum([rsi.iloc[-1] < 45, (macd-sig).iloc[-1] > 0, c.iloc[-1] > s20.iloc[-1], c.iloc[-1] < bbl.iloc[-1]*1.1])
 
         return {
-            "Hisse": symbol, "Fiyat": round(c.iloc[-1], 2), "RSI": round(rsi_val.iloc[-1], 1),
-            "MACD": "AL" if (macd-sig).iloc[-1] > 0 else "SAT", "SMA20": "ÜST" if c.iloc[-1] > s20.iloc[-1] else "ALT",
+            "Hisse": symbol, "Fiyat": round(c.iloc[-1], 2), "RSI": round(rsi.iloc[-1], 1),
+            "MACD": "POZ" if (macd-sig).iloc[-1] > 0 else "NEG", "SMA20": "ÜST" if c.iloc[-1] > s20.iloc[-1] else "ALT",
             "SMA50": "ÜST" if c.iloc[-1] > s50.iloc[-1] else "ALT", "B_Bant": "OK" if c.iloc[-1] < bbl.iloc[-1]*1.1 else "--",
             "CCI": round(cci.iloc[-1], 0), "MFI": round(mfi.iloc[-1], 1), "Stoch": round(stok.iloc[-1], 1),
-            "Momentum": round(mom.iloc[-1], 1), "Puan": f"{p}/4",
-            "Sinyal": "🟢 GÜÇLÜ" if p >= 3 else "🔴 ZAYIF" if p <= 1 else "🟡 BEKLE"
+            "Momentum": round(mom.iloc[-1], 1), "Puan": f"{p}/4", "Sinyal": "🟢 AL" if p >= 3 else "🟡 BEKLE" if p == 2 else "🔴 SAT"
         }
     except: return None
 
-# --- 5. ANA UYGULAMA DÖNGÜSÜ ---
+# --- 4. ANA DÖNGÜ VE KİMLİK YÖNETİMİ ---
 def main():
     st.sidebar.title("👤 Kullanıcı Girişi")
-    user_name = st.sidebar.text_input("İsminizi Girin:", value="Hasan_Bey")
     
-    # Kullanıcı verisini yükle
-    user_file = get_user_file(user_name)
-    if 'current_list' not in st.session_state:
-        if os.path.exists(user_file):
-            with open(user_file, "r") as f:
-                st.session_state.current_list = json.load(f)
+    # İsim Değişikliği Kontrolü: Eğer isim değişirse session'ı sıfırla
+    if 'current_user' not in st.session_state:
+        st.session_state.current_user = ""
+        
+    user_name = st.sidebar.text_input("İsminizi Girin (Enter'a basın):", value="").strip()
+
+    # İsim boş değilse ve değişmişse listeyi dosyadan yeniden yükle
+    if user_name and user_name != st.session_state.current_user:
+        st.session_state.current_user = user_name
+        file_path = f"users/{user_name.lower()}.json"
+        if os.path.exists(file_path):
+            with open(file_path, "r") as f:
+                st.session_state.user_list = json.load(f)
         else:
-            st.session_state.current_list = ["ESEN", "SASA", "THYAO"]
+            st.session_state.user_list = ["ESEN", "SASA", "THYAO"] # Yeni kullanıcı için varsayılan
 
-    # Sidebar Hisse Seçimi
+    # Sidebar Seçim Ekranı
     all_symbols = get_bist_tickers_full()
-    selected = st.sidebar.multiselect("Hisselerinizi Seçin:", options=all_symbols, default=st.session_state.current_list)
+    
+    # Eğer isim girilmediyse uyarı ver ve seçimi engelle
+    if not user_name:
+        st.sidebar.warning("⚠️ Devam etmek için lütfen isminizi yazın.")
+        st.title("🛡️ Hasan Bey BİST Terminali")
+        st.info("Sol taraftan isminizi girerek kendi listenize ulaşabilirsiniz.")
+        return
 
-    if st.sidebar.button("💾 Listemi İsmime Kaydet"):
-        with open(user_file, "w") as f:
+    selected = st.sidebar.multiselect(
+        f"Merhaba {user_name}, Listenizi Düzenleyin:", 
+        options=all_symbols, 
+        default=st.session_state.get('user_list', ["ESEN"])
+    )
+
+    if st.sidebar.button("💾 LİSTEMİ KAYDET"):
+        if not os.path.exists("users"): os.makedirs("users")
+        with open(f"users/{user_name.lower()}.json", "w") as f:
             json.dump(selected, f)
-        st.session_state.current_list = selected
-        st.sidebar.success(f"✅ {user_name}, listen kaydedildi!")
+        st.session_state.user_list = selected
+        st.sidebar.success(f"✅ {user_name}, listen özel olarak kaydedildi!")
 
     # Ana Panel
-    st.title(f"📈 {user_name} BİST Karar Destek Terminali")
-    st.info(f"Kriter: 10 Teknik İndikatör | Tarih: {datetime.now().strftime('%d/%m/%Y')}")
-
+    st.title(f"📈 {user_name.upper()} - BİST Analiz Paneli")
+    
     if st.button(f"🚀 {len(selected)} Hisseyi Analiz Et"):
         if not selected:
             st.warning("Lütfen hisse seçin.")
         else:
             results = []
-            bar = st.progress(0)
-            status = st.empty()
+            bar = st.progress(0); status = st.empty()
             for i, s in enumerate(selected):
                 status.text(f"Analiz ediliyor: {s}")
-                res = profesyonel_analiz_10(s)
+                res = get_pro_analysis(s)
                 if res: results.append(res)
                 bar.progress((i+1)/len(selected))
             
             if results:
                 df = pd.DataFrame(results)
                 st.dataframe(df.sort_values("Puan", ascending=False), use_container_width=True)
-                st.success("Analiz tamamlandı.")
             status.empty(); bar.empty()
 
 if __name__ == "__main__":
