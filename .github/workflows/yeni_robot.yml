@@ -1,10 +1,8 @@
 name: Yeni Robot Calistir
-
 on:
+  workflow_dispatch:
   schedule:
     - cron: '30 15 * * 1-5'
-  workflow_dispatch:
-
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -13,11 +11,14 @@ jobs:
       - uses: actions/setup-python@v4
         with:
           python-version: '3.10'
-      - run: pip install yfinance pandas requests
-      - run: python borsa_robotu_yeni.py
-      - run: |
+      - name: Sadece Temel Kütüphaneleri Yükle
+        run: pip install yfinance pandas requests
+      - name: Robotu Baslat
+        run: python borsa_robotu_yeni.py
+      - name: Dosyayi Kaydet
+        run: |
           git config --global user.name "HasanBot"
           git config --global user.email "bot@hasan.com"
           git add analiz_yeni.html
-          git commit -m "Uclu analiz guncellendi" || exit 0
+          git commit -m "Analiz guncellendi" || exit 0
           git push
