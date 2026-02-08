@@ -8,38 +8,35 @@ import sqlite3
 from sklearn.linear_model import LinearRegression
 
 # =================================================================
-# 1. TASARIM VE MOBİL UYUM (PWA) - YÜKSEK OKUNURLUK
+# 1. TASARIM VE MOBİL UYUM (PWA) - KRİSTAL NETLİK
 # =================================================================
-st.set_page_config(page_title="Borsa Robotu Master V7", layout="wide", page_icon="🛡️")
+st.set_page_config(page_title="Borsa Robotu Master V7", layout="wide", page_icon="📈")
 
 st.markdown("""
     <style>
         .stApp { background-color: #0E1117; }
-        section[data-testid="stSidebar"] { background-color: #111418 !important; border-right: 2px solid #3b82f6; }
+        section[data-testid="stSidebar"] { background-color: #111418 !important; border-right: 2px solid #00D4FF; }
         
-        /* Sidebar Yazıları Cam Gibi Net */
-        section[data-testid="stSidebar"] label, section[data-testid="stSidebar"] p { 
-            color: #FFFFFF !important; font-weight: 900 !important; font-size: 1rem !important;
+        /* Sidebar Okunurluk */
+        section[data-testid="stSidebar"] label, section[data-testid="stSidebar"] p, section[data-testid="stSidebar"] h2 { 
+            color: #FFFFFF !important; font-weight: 900 !important; font-size: 1.1rem !important; 
         }
         
-        /* BİLANÇO KARTLARI - YÜKSEK OKUNURLUK AYARI */
-        .bilanco-card {
-            background: #1e293b; padding: 18px; border-radius: 12px; 
-            border-left: 6px solid #3b82f6; margin-bottom: 12px;
-            box-shadow: 2px 2px 10px rgba(0,0,0,0.3);
+        /* BİLANÇO VE AI KARTLARI */
+        .master-card {
+            background: #1e293b; padding: 20px; border-radius: 15px; 
+            border-left: 8px solid #00D4FF; margin-bottom: 15px;
+            box-shadow: 0px 4px 15px rgba(0,0,0,0.5);
         }
-        .bilanco-text {
-            color: #E2E8F0 !important; font-size: 1rem !important; font-weight: 600 !important;
-            line-height: 1.5;
-        }
+        .card-title { color: #00D4FF !important; font-weight: 800; margin: 0; font-size: 0.9rem; }
+        .card-text { color: #FFFFFF !important; font-weight: 600; margin-top: 5px; font-size: 1rem; }
 
-        /* KAYDET BUTONU - HER ZAMAN GÖRÜNÜR VE PARLAK */
+        /* KAYDET BUTONU - EN ÜSTTE VE PARLAK */
         .stButton>button {
             background-color: #00D4FF !important; color: #000000 !important;
-            font-weight: 900 !important; border-radius: 10px !important; 
-            height: 60px !important; width: 100% !important;
-            border: 3px solid #FFFFFF !important; font-size: 1.2rem !important;
-            box-shadow: 0px 4px 15px rgba(0, 212, 255, 0.4);
+            font-weight: 900 !important; border-radius: 12px !important; 
+            height: 65px !important; width: 100% !important;
+            border: 3px solid #FFFFFF !important; font-size: 1.3rem !important;
         }
         
         /* GİRİŞ KUTULARI */
@@ -50,10 +47,10 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # =================================================================
-# 2. VERİ SAKLAMA MİMARİSİ
+# 2. GİZLİLİK ODAKLI VERİ SAKLAMA
 # =================================================================
-class ProductionDB:
-    def __init__(self, db_name="borsa_v7_final_pro.db"):
+class PersonalStorage:
+    def __init__(self, db_name="borsa_robotu_v7_final.db"):
         self.conn = sqlite3.connect(db_name, check_same_thread=False)
 
     def get_user_space(self, key):
@@ -74,17 +71,19 @@ class ProductionDB:
         with self.conn: self.conn.execute(f"DELETE FROM {table} WHERE symbol = ?", (s,))
 
 # =================================================================
-# 3. ANALİZ VE TERCÜME MOTORU
+# 3. ÇİFT AI MOTORU VE BİLANÇO ANALİZİ
 # =================================================================
-class MasterEngine:
+class AnalystSystem:
     @staticmethod
-    def get_data(symbol):
+    def fetch_analysis(symbol):
         try:
             t = yf.Ticker(symbol)
             df = t.history(period="1y")
             if df.empty: return None, None
-            # Teknik Veriler
+            
+            # İndikatörler
             df['SMA50'] = df['Close'].rolling(50).mean()
+            df['SMA200'] = df['Close'].rolling(200).mean()
             delta = df['Close'].diff()
             g = delta.where(delta > 0, 0).rolling(14).mean()
             l = -delta.where(delta < 0, 0).rolling(14).mean()
@@ -92,99 +91,118 @@ class MasterEngine:
             df['MB'] = df['Close'].rolling(20).mean()
             df['UB'] = df['MB'] + (df['Close'].rolling(20).std() * 2)
             df['LB'] = df['MB'] - (df['Close'].rolling(20).std() * 2)
-            
+            exp1 = df['Close'].ewm(span=12, adjust=False).mean()
+            exp2 = df['Close'].ewm(span=26, adjust=False).mean()
+            df['MACD'] = exp1 - exp2
+            df['Signal'] = df['MACD'].ewm(span=9, adjust=False).mean()
+
             info = t.info
             fin = {
                 "ad": info.get("longName", "Bilinmiyor"),
                 "fk": info.get("trailingPE", "N/A"),
                 "pddd": info.get("priceToBook", "N/A"),
                 "cari": info.get("currentRatio", 0),
-                "oz_kar": info.get("returnOnEquity", 0) * 100
+                "oz_kar": info.get("returnOnEquity", 0) * 100,
+                "ozet": info.get("longBusinessSummary", "Hakkında bilgi bulunamadı.")
             }
             return df, fin
         except: return None, None
 
     @staticmethod
-    def ai_predict(df):
-        y = df['Close'].values[-100:]
-        x = np.arange(len(y)).reshape(-1, 1)
-        m = LinearRegression().fit(x, y)
-        f = np.array([len(y) + i for i in range(5)]).reshape(-1, 1)
-        return m.predict(f)
+    def dual_ai_engine(df):
+        try:
+            # Motor 1: Trend
+            y = df['Close'].values[-100:]
+            x = np.arange(len(y)).reshape(-1, 1)
+            model = LinearRegression().fit(x, y)
+            f_x = np.array([len(y) + i for i in range(5)]).reshape(-1, 1)
+            preds = model.predict(f_x)
+            
+            # Motor 2: Momentum Güveni
+            rsi = df['RSI'].iloc[-1]
+            conf = 90 if 45 < rsi < 65 else 65
+            return preds, conf
+        except: return None, 0
 
 # =================================================================
-# 4. ANA PROGRAM
+# 4. ANA PROGRAM DÖNGÜSÜ
 # =================================================================
 def main():
-    db = ProductionDB()
-    eng = MasterEngine()
+    storage = PersonalStorage()
+    engine = AnalystSystem()
 
     st.sidebar.title("🔑 Güvenli Giriş")
-    user_key = st.sidebar.text_input("Kişisel Şifreniz:", type="password", help="Bu şifre size özel kasanızı açar.")
+    key = st.sidebar.text_input("Kişisel Şifreniz:", type="password")
     
-    if not user_key:
-        st.info("👋 Hoş geldin öğretmenim! Arkadaşınızla beraber kullanmaya başlamak için lütfen sol tarafa size özel bir şifre girin.")
+    if not key:
+        st.info("👋 Devam etmek için sol tarafa şifrenizi girin. Bu şifre kasanızın tek anahtarıdır.")
         return
 
-    table = db.get_user_space(user_key)
+    ut = storage.get_user_space(key)
 
     st.sidebar.divider()
-    st.sidebar.subheader("➕ Hisse Ekle")
-    s_in = st.sidebar.text_input("Kod (Örn: ESEN)").upper().strip()
+    # KAYDET BUTONU EN ÜSTTE
+    s_in = st.sidebar.text_input("Hisse Kodu (Örn: ESEN)").upper().strip()
     q_in = st.sidebar.number_input("Adet", min_value=0.0)
     c_in = st.sidebar.number_input("Maliyet", min_value=0.0)
-    t_in = st.sidebar.number_input("Hedef", min_value=0.0)
-    st_in = st.sidebar.number_input("Stop", min_value=0.0)
+    t_in = st.sidebar.number_input("Hedef Fiyat", min_value=0.0)
+    st_in = st.sidebar.number_input("Stop Fiyat", min_value=0.0)
     
-    # DEV KAYDET BUTONU
-    if st.sidebar.button("VERİLERİ SİSTEME KAYDET"):
+    if st.sidebar.button("KAYDET VE ANALİZ ET"):
         if s_in:
             sc = s_in + ".IS" if not s_in.endswith(".IS") else s_in
-            db.save(table, sc, q_in, c_in, t_in, st_in)
-            st.sidebar.success(f"{s_in} Kaydedildi!")
+            storage.save(ut, sc, q_in, c_in, t_in, st_in)
             st.rerun()
 
-    p_df = db.get_all(table)
+    p_df = storage.get_all(ut)
     if not p_df.empty:
         st.title("🛡️ Borsa Robotu Master V7")
         active = st.selectbox("Analiz Edilecek Varlık:", p_df['symbol'].tolist())
-        df, fin = eng.get_data(active)
+        df, fin = engine.fetch_analysis(active)
         
         if df is not None:
-            pred = eng.ai_predict(df)
+            preds, conf = engine.dual_ai_engine(df)
             
-            # --- ÜST PANEL ---
-            col1, col2 = st.columns(2)
-            with col1:
-                st.markdown(f"""<div style="background:#1e3a8a; padding:20px; border-radius:15px; border:2px solid #60a5fa;">
-                    <h3 style="color:white; margin:0;">🧠 AI Fiyat Tahmini (5 Gün)</h3>
-                    <h1 style="color:#00D4FF; margin:0;">{pred[0]:.2f} ➔ {pred[-1]:.2f} TL</h1>
+            # --- 1. KATMAN: AI VE BİLANÇO ANALİZİ ---
+            c_ai, c_fin = st.columns(2)
+            with c_ai:
+                st.markdown(f"""<div class="master-card">
+                    <p class="card-title">🧠 ÇİFT MOTORLU AI TAHMİNİ (5 GÜN)</p>
+                    <h1 style="color:white; margin:0;">{preds[0]:.2f} ➔ {preds[-1]:.2f} TL</h1>
+                    <p class="card-text">📊 Güven Skoru: %{conf}</p>
                 </div>""", unsafe_allow_html=True)
             
-            with col2:
-                st.subheader("📋 Bilanço Özet Karnesi")
-                # Dinamik Yorumlar
-                c_status = "🟢" if fin['cari'] > 1.5 else "🟡" if fin['cari'] > 1 else "🔴"
-                k_status = "🟢" if fin['oz_kar'] > 20 else "🟡" if fin['oz_kar'] > 0 else "🔴"
-                
-                st.markdown(f"""<div class='bilanco-card'><p class='bilanco-text'>{c_status} <b>Borç Ödeme:</b> Şirketin cari oranı {fin['cari']:.2f}. Borçlarını ödeme kabiliyeti { 'güçlü.' if fin['cari']>1.5 else 'takip edilmeli.' }</p></div>""", unsafe_allow_html=True)
-                st.markdown(f"""<div class='bilanco-card'><p class='bilanco-text'>{k_status} <b>Karlılık:</b> Özsermaye karlılığı %{fin['oz_kar']:.1f}. Şirket sermayesini { 'verimli kullanıyor.' if fin['oz_kar']>20 else 'normal düzeyde kullanıyor.' }</p></div>""", unsafe_allow_html=True)
+            with c_fin:
+                c_sts = "🟢" if fin['cari'] > 1.5 else "🟡" if fin['cari'] > 1 else "🔴"
+                k_sts = "🟢" if fin['oz_kar'] > 20 else "🟡" if fin['oz_kar'] > 0 else "🔴"
+                st.markdown(f"""<div class="master-card">
+                    <p class="card-title">🧾 BİLANÇO OKURYAZARI (ÖZET)</p>
+                    <p class="card-text">{c_sts} <b>Borç Ödeme:</b> Şirket nakit gücü { 'iyi' if fin['cari']>1.5 else 'zayıf' }.</p>
+                    <p class="card-text">{k_sts} <b>Karlılık:</b> Sermaye verimi %{fin['oz_kar']:.1f}.</p>
+                </div>""", unsafe_allow_html=True)
 
-            # --- GRAFİK ---
-            fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.1, subplot_titles=('Fiyat & Bollinger & Trend', 'RSI Güç Endeksi'), row_heights=[0.7, 0.3])
+            # --- 2. KATMAN: TEKNİK GRAFİK ---
+            fig = make_subplots(rows=3, cols=1, shared_xaxes=True, vertical_spacing=0.05, 
+                               subplot_titles=('Fiyat & Bollinger & Trendler', 'MACD Sinyali', 'RSI Güç Endeksi'),
+                               row_heights=[0.5, 0.25, 0.25])
             fig.add_trace(go.Candlestick(x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'], name="Fiyat"), row=1, col=1)
-            fig.add_trace(go.Scatter(x=df.index, y=df['UB'], line=dict(color='rgba(255,255,255,0.2)'), name="Üst Bant"), row=1, col=1)
-            fig.add_trace(go.Scatter(x=df.index, y=df['LB'], line=dict(color='rgba(255,255,255,0.2)'), name="Alt Bant", fill='tonexty'), row=1, col=1)
-            fig.add_trace(go.Scatter(x=df.index, y=df['SMA50'], line=dict(color='gold', width=2), name="Trend"), row=1, col=1)
-            fig.add_trace(go.Scatter(x=df.index, y=df['RSI'], line=dict(color='magenta'), name="RSI"), row=2, col=1)
-            fig.update_layout(height=750, template="plotly_dark", xaxis_rangeslider_visible=False)
+            fig.add_trace(go.Scatter(x=df.index, y=df['UB'], line=dict(color='gray', width=1), name="Üst Bant"), row=1, col=1)
+            fig.add_trace(go.Scatter(x=df.index, y=df['LB'], line=dict(color='gray', width=1), name="Alt Bant", fill='tonexty'), row=1, col=1)
+            fig.add_trace(go.Scatter(x=df.index, y=df['SMA50'], line=dict(color='gold', width=2), name="SMA50"), row=1, col=1)
+            fig.add_trace(go.Scatter(x=df.index, y=df['SMA200'], line=dict(color='red', width=2), name="SMA200"), row=1, col=1)
+            fig.add_trace(go.Scatter(x=df.index, y=df['MACD'], line=dict(color='cyan'), name="MACD"), row=2, col=1)
+            fig.add_trace(go.Scatter(x=df.index, y=df['RSI'], line=dict(color='magenta'), name="RSI"), row=3, col=1)
+            fig.update_layout(height=850, template="plotly_dark", xaxis_rangeslider_visible=False)
             st.plotly_chart(fig, use_container_width=True)
 
-            # --- SİLME VE METRİKLER ---
-            c_last, c_del = st.columns([4, 1])
-            c_last.metric("Güncel Fiyat", f"{df['Close'].iloc[-1]:.2f} TL")
-            if c_del.button(f"🗑️ {active.split('.')[0]} SİL"):
-                db.delete(table, active); st.rerun()
+            # --- 3. KATMAN: METRİKLER VE SİLME ---
+            m1, m2, m3 = st.columns([2, 2, 1])
+            m1.metric("Anlık Fiyat", f"{df['Close'].iloc[-1]:.2f} TL")
+            row = p_df[p_df['symbol'] == active].iloc[0]
+            kz = (df['Close'].iloc[-1] - row['cost']) * row['qty']
+            m2.metric("Kâr/Zarar", f"{kz:,.0f} TL", f"{((df['Close'].iloc[-1]/row['cost'])-1)*100:.2f}%")
+            if m3.button(f"🗑️ SİL"):
+                storage.delete(ut, active); st.rerun()
 
     else:
         st.info("👈 Başlamak için şifrenizi girin ve sol taraftan ilk hissenizi kaydedin.")
