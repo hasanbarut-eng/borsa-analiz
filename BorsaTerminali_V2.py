@@ -5,246 +5,192 @@ import plotly.graph_objects as go
 import plotly.express as px
 import yfinance as yf
 import sqlite3
-from datetime import datetime, timedelta
-import os
+from datetime import datetime
 
 # =================================================================
-# DATABASE MANAGER (VERİ TABANI YÖNETİMİ)
+# 1. DATABASE & STORAGE (GÜVENLİ HAFIZA VE PORTFÖY)
 # =================================================================
-class DatabaseManager:
-    """Kullanıcı izleme listelerini ve tercihlerini yönetir."""
-    def __init__(self, db_name="borsa_terminali_v2.db"):
+class TerminalDB:
+    """Kullanıcı portföyünü ve ayarlarını kalıcı olarak saklar."""
+    def __init__(self, db_name="komuta_merkezi_v3.db"):
         self.conn = sqlite3.connect(db_name, check_same_thread=False)
-        self.create_tables()
+        self._init_schema()
 
-    def create_tables(self):
+    def _init_schema(self):
         with self.conn:
-            # İzleme listesi tablosu
-            self.conn.execute("""
-                CREATE TABLE IF NOT EXISTS watchlist (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    username TEXT,
-                    symbol TEXT,
-                    added_date TEXT,
-                    UNIQUE(username, symbol)
-                )
-            """)
+            self.conn.execute("""CREATE TABLE IF NOT EXISTS portfolio 
+                (symbol TEXT PRIMARY KEY, qty REAL, cost REAL)""")
 
-    def add_to_watchlist(self, username, symbol):
-        try:
-            with self.conn:
-                self.conn.execute("INSERT OR IGNORE INTO watchlist (username, symbol, added_date) VALUES (?, ?, ?)",
-                                 (username, symbol, datetime.now().strftime("%Y-%m-%d %H:%M")))
-            return True
-        except Exception as e:
-            st.error(f"DB Hatası: {e}")
-            return False
-
-    def get_watchlist(self, username):
-        cursor = self.conn.cursor()
-        cursor.execute("SELECT symbol FROM watchlist WHERE username = ?", (username,))
-        return [row[0] for row in cursor.fetchall()]
-
-    def remove_from_watchlist(self, username, symbol):
+    def save_p(self, s, q, c):
         with self.conn:
-            self.conn.execute("DELETE FROM watchlist WHERE username = ? AND symbol = ?", (username, symbol))
+            self.conn.execute("INSERT OR REPLACE INTO portfolio VALUES (?,?,?)", (s, q, c))
+
+    def get_p(self):
+        return pd.read_sql_query("SELECT * FROM portfolio", self.conn)
+
+    def delete_p(self, s):
+        with self.conn:
+            self.conn.execute("DELETE FROM portfolio WHERE symbol = ?", (s,))
 
 # =================================================================
-# ANALYSIS ENGINE (HESAPLAMA MOTORU)
+# 2. INTELLIGENCE ENGINE (ANALİZ VE TERCÜME MOTORU)
 # =================================================================
-class FinanceEngine:
-    """Finansal verileri çeker ve ağır matematiksel hesaplamaları yapar."""
+class AnalystEngine:
+    """Karmaşık veriyi basit Türkçe kararlara dönüştüren zeka katmanı."""
     
     @staticmethod
-    def get_stock_data(symbol, period="1y"):
+    def get_full_analysis(symbol):
+        """Hisse verisini çeker ve analiz hazırlar."""
         try:
-            data = yf.download(symbol, period=period, interval="1d", progress=False)
-            if data.empty: return None
-            # Multi-index sütunlarını temizle
-            if isinstance(data.columns, pd.MultiIndex):
-                data.columns = data.columns.get_level_values(0)
-            return data
-        except Exception as e:
-            st.error(f"Veri çekme hatası ({symbol}): {e}")
-            return None
+            # Canlı Veri Çekme
+            df = yf.download(symbol, period="2y", interval="1d", progress=False)
+            if df.empty: return None, None, None
+            if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.get_level_values(0)
 
-    @staticmethod
-    def calculate_rsi(df, period=14):
-        """
-        Göreceli Güç Endeksi (RSI) hesaplar. 
-        Aşırı alım/satım bölgelerini belirlemek için kullanılır.
-        """
-        try:
-            # Fiyat değişimlerini bul
+            # Teknik Hesaplamalar
+            df['SMA_50'] = df['Close'].rolling(50).mean()
+            df['SMA_200'] = df['Close'].rolling(200).mean()
             delta = df['Close'].diff()
+            g = delta.where(delta > 0, 0).rolling(14).mean()
+            l = -delta.where(delta < 0, 0).rolling(14).mean()
+            df['RSI'] = 100 - (100 / (1 + (g / l)))
+
+            # Temel Veriler
+            t = yf.Ticker(symbol)
+            info = t.info
+            fund = {
+                "FK": info.get('trailingPE', 0),
+                "PDDD": info.get('priceToBook', 0),
+                "Temettu": info.get('dividendYield', 0) * 100 if info.get('dividendYield') else 0,
+                "Is_Ismi": info.get('longName', symbol)
+            }
             
-            # Kazanç ve kayıpları ayır
-            gain = (delta.where(delta > 0, 0))
-            loss = (-delta.where(delta < 0, 0))
-            
-            # Ortalama kazanç ve kaybı hesapla (EMA yöntemi)
-            avg_gain = gain.ewm(com=period - 1, min_periods=period).mean()
-            avg_loss = loss.ewm(com=period - 1, min_periods=period).mean()
-            
-            # Göreceli Güç (RS) ve RSI hesaplama
-            rs = avg_gain / avg_loss
-            df['RSI'] = 100 - (100 / (1 + rs))
-            return df
+            return df, fund, t.news[:5]
         except Exception as e:
-            st.error(f"RSI hesaplama hatası: {e}")
-            return df
+            st.error(f"Analiz hatası: {e}")
+            return None, None, None
 
     @staticmethod
-    def calculate_monte_carlo(df, days=30, simulations=1000):
-        try:
-            # Logaritmik getiriler
-            returns = np.log(df['Close'] / df['Close'].shift(1)).dropna()
-            last_price = float(df['Close'].iloc[-1])
-            mu, sigma = returns.mean(), returns.std()
-            
-            # Vektörize edilmiş Geometrik Brown Hareketi
-            shocks = np.exp((mu - 0.5 * sigma**2) + sigma * np.random.standard_normal((days, simulations)))
-            paths = np.vstack([np.ones(simulations) * last_price, shocks])
-            return pd.DataFrame(np.cumprod(paths, axis=0))
-        except Exception as e:
-            st.error(f"Monte Carlo hatası: {e}")
-            return pd.DataFrame()
+    def generate_simple_decision(df, fund):
+        """Matematik öğretmeni için basit karar özeti."""
+        last_c = df['Close'].iloc[-1]
+        rsi = df['RSI'].iloc[-1]
+        sma50 = df['SMA_50'].iloc[-1]
+        sma200 = df['SMA_200'].iloc[-1]
+        
+        score = 0
+        reasons = []
+
+        # 1. Trend Analizi
+        if last_c > sma50:
+            score += 2; reasons.append("✅ Fiyat yükseliş trendinde (SMA50 üstü).")
+        else:
+            score -= 1; reasons.append("⚠️ Fiyat kısa vadeli düşüş baskısında.")
+
+        # 2. RSI (Hız) Analizi
+        if rsi < 35:
+            score += 2; reasons.append("🟢 Hisse çok ucuzlamış (RSI), alım fırsatı olabilir.")
+        elif rsi > 75:
+            score -= 2; reasons.append("🔴 Hisse çok şişmiş (RSI), düzeltme gelebilir.")
+
+        # 3. Temel Analiz (Ucuzluk)
+        if fund['FK'] != 0 and fund['FK'] < 15:
+            score += 1; reasons.append(f"💎 Şirket kazancına göre ucuz görünüyor (F/K: {fund['FK']:.1f}).")
+
+        # Karar Çıktısı
+        if score >= 3: d, color = "GÜÇLÜ AL", "#00FF00"
+        elif 1 <= score < 3: d, color = "OLUMLU / TUT", "#00D4FF"
+        elif -1 <= score < 1: d, color = "NÖTR / BEKLE", "#FFFF00"
+        else: d, color = "RİSKLİ / SAT", "#FF0000"
+
+        return d, reasons, color
 
 # =================================================================
-# UI COMPONENTS (ARAYÜZ BİLEŞENLERİ)
+# 3. MASTER UI (KULLANICI ARAYÜZÜ)
 # =================================================================
 def main():
-    st.set_page_config(page_title="Borsa Pro-Terminal V2.1", layout="wide", initial_sidebar_state="expanded")
-    
-    # Başlatıcılar
-    db = DatabaseManager()
-    engine = FinanceEngine()
-    
-    # Custom CSS - Stil ayarları
-    st.markdown("""
-        <style>
-        .stMetric { background-color: #1e2130; padding: 15px; border-radius: 10px; border: 1px solid #3e4256; }
-        .main-header { font-size: 2.5rem; font-weight: bold; color: #00d4ff; text-align: center; }
-        </style>
-    """, unsafe_allow_html=True)
+    st.set_page_config(page_title="Pro-Terminal V3", layout="wide")
+    db = TerminalDB()
+    ae = AnalystEngine()
 
-    st.markdown('<p class="main-header">🚀 Borsa Stratejik Karar Terminali V2.1</p>', unsafe_allow_html=True)
-    
-    # Sidebar - Kullanıcı ve Giriş Paneli
+    # CSS Tasarımı
+    st.markdown("""<style>
+        .stMetric { background: #161b22; border: 1px solid #30363d; border-radius: 10px; padding: 20px; }
+        .decision-card { padding: 25px; border-radius: 15px; margin-bottom: 25px; color: white; }
+    </style>""", unsafe_allow_html=True)
+
+    st.title("🛡️ Borsa Stratejik Karar Terminali")
+
+    # SIDEBAR: PORTFÖY GİRİŞİ
     with st.sidebar:
-        st.header("👤 Kullanıcı Paneli")
-        user_name = st.text_input("Kullanıcı Adı", value="Admin").strip()
+        st.header("💼 Portföy Yönetimi")
+        s_in = st.text_input("Hisse Kodu (.IS ekleyin)", value="THYAO.IS").upper()
+        q_in = st.number_input("Adet", min_value=0.0, value=100.0)
+        c_in = st.number_input("Maliyet (TL)", min_value=0.0, value=250.0)
+        if st.button("Portföye Kaydet"):
+            db.save_p(s_in, q_in, c_in)
+            st.rerun()
         
         st.divider()
-        st.header("🔍 Sembol Sorgu")
-        symbol_input = st.text_input("Hisse Kodu (Örn: EREGL.IS)", value="THYAO.IS").upper()
-        
-        if st.button("➕ İzleme Listesine Ekle"):
-            if db.add_to_watchlist(user_name, symbol_input):
-                st.toast(f"{symbol_input} başarıyla eklendi!")
-        
-        st.divider()
-        st.header("📋 İzleme Listem")
-        my_list = db.get_watchlist(user_name)
-        if my_list:
-            selected_from_list = st.selectbox("Hızlı Seçim", options=my_list)
-            if st.button("🗑️ Listeden Kaldır"):
-                db.remove_from_watchlist(user_name, selected_from_list)
-                st.rerun()
-        else:
-            st.info("Listeniz henüz boş.")
+        st.write("📋 **Kayıtlı Portföyüm**")
+        p_df = db.get_p()
+        if not p_df.empty:
+            for s in p_df['symbol']:
+                if st.button(f"Sil: {s}"):
+                    db.delete_p(s); st.rerun()
 
-    # ANA EKRAN AKIŞI
-    if symbol_input:
-        with st.spinner(f"{symbol_input} verileri analiz ediliyor..."):
-            # 1. Veri Çekme
-            df = engine.get_stock_data(symbol_input)
+    # ANA EKRAN: DASHBOARD
+    if not p_df.empty:
+        st.subheader("🏦 Portföy Özet Ekranı")
+        total_v, total_p = 0, 0
+        cols = st.columns(len(p_df))
+        
+        for i, row in p_df.iterrows():
+            live = yf.download(row['symbol'], period="2d", progress=False)
+            if not live.empty:
+                curr = live['Close'].iloc[-1]
+                val = curr * row['qty']; pnl = (curr - row['cost']) * row['qty']
+                total_v += val; total_p += pnl
+                with cols[i]:
+                    st.metric(row['symbol'], f"{curr:.2f} TL", f"{pnl:,.0f} TL")
+        
+        st.success(f"**Toplam Varlık:** {total_v:,.2f} TL | **Net Kar/Zarar:** {total_p:,.2f} TL")
+
+    # MODÜL: AKILLI ANALİZ
+    st.divider()
+    active_s = st.selectbox("Analiz İçin Hisse Seç", options=p_df['symbol'].tolist() if not p_df.empty else ["THYAO.IS"])
+    
+    if active_s:
+        df, fund, news = ae.get_full_analysis(active_s)
+        if df is not None:
+            # KARAR KARTINI BASALIM
+            dec, reasons, color = ae.generate_simple_decision(df, fund)
+            st.markdown(f"""<div class="decision-card" style="background-color: {color}33; border: 2px solid {color};">
+                <h2 style="color: {color};">🤖 Sistem Kararı: {dec}</h2>
+                <ul style="font-size: 1.2rem;">{''.join([f"<li>{r}</li>" for r in reasons])}</ul>
+            </div>""", unsafe_allow_html=True)
+
+            # SEKMELER
+            t_chart, t_fund, t_risk = st.tabs(["📈 Teknik Görünüm", "🏢 Şirket Sağlığı", "🎲 Risk & Haber"])
             
-            if df is not None:
-                # 2. Teknik Analiz (RSI Ekleme)
-                df = engine.calculate_rsi(df)
+            with t_chart:
+                fig = go.Figure()
+                fig.add_trace(go.Candlestick(x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'], name="Fiyat"))
+                fig.add_trace(go.Scatter(x=df.index, y=df['SMA_50'], name="50 Günlük Trend", line=dict(color='orange')))
+                fig.update_layout(template="plotly_dark", height=500, xaxis_rangeslider_visible=False)
+                st.plotly_chart(fig, use_container_width=True)
 
-                # 3. ÖZET METRİKLER (Üst Kartlar)
-                c1, c2, c3, c4 = st.columns(4)
-                last_price = df['Close'].iloc[-1]
-                prev_price = df['Close'].iloc[-2]
-                change_pct = ((last_price / prev_price) - 1) * 100
-                current_rsi = df['RSI'].iloc[-1]
-                
-                c1.metric("Son Fiyat", f"{last_price:.2f} TL", f"{change_pct:.2f}%")
-                c2.metric("Günlük Hacim", f"{df['Volume'].iloc[-1]:,.0f}")
-                c3.metric("RSI (14)", f"{current_rsi:.2f}")
-                c4.metric("Yıllık Zirve", f"{df['High'].max():.2f} TL")
+            with t_fund:
+                c1, c2, c3 = st.columns(3)
+                c1.metric("Ucuzluk (F/K)", f"{fund['FK']:.2f}")
+                c2.metric("Defter Değeri (PD/DD)", f"{fund['PDDD']:.2f}")
+                c3.metric("Temettü Verimi", f"%{fund['Temettu']:.2f}")
+                st.write(f"**Şirket Ünvanı:** {fund['Is_Ismi']}")
 
-                # 4. GRAFİK VE ANALİZ SEKMELERİ
-                tab_chart, tab_monte, tab_corr = st.tabs(["📈 Fiyat & RSI Grafiği", "🎲 Monte Carlo Simülasyonu", "🔗 Korelasyon Analizi"])
-                
-                with tab_chart:
-                    # Mum Grafiği
-                    fig_main = go.Figure()
-                    fig_main.add_trace(go.Candlestick(x=df.index, open=df['Open'], high=df['High'], 
-                                                     low=df['Low'], close=df['Close'], name="Fiyat"))
-                    fig_main.update_layout(template="plotly_dark", height=500, xaxis_rangeslider_visible=False, title=f"{symbol_input} Mum Grafiği")
-                    st.plotly_chart(fig_main, use_container_width=True)
-
-                    # RSI Alt Grafik
-                    fig_rsi = go.Figure()
-                    fig_rsi.add_trace(go.Scatter(x=df.index, y=df['RSI'], name="RSI", line=dict(color='magenta', width=1.5)))
-                    # RSI Eşik Çizgileri
-                    fig_rsi.add_hline(y=70, line_dash="dash", line_color="red", annotation_text="Aşırı Alım (70)")
-                    fig_rsi.add_hline(y=30, line_dash="dash", line_color="green", annotation_text="Aşırı Satım (30)")
-                    fig_rsi.update_layout(template="plotly_dark", height=250, title="RSI (Göreceli Güç Endeksi)")
-                    st.plotly_chart(fig_rsi, use_container_width=True)
-
-                with tab_monte:
-                    st.subheader("30 Günlük Fiyat Tahmin Projeksiyonu")
-                    col_mc_left, col_mc_right = st.columns([3, 1])
-                    
-                    mc_results = engine.calculate_monte_carlo(df)
-                    if not mc_results.empty:
-                        with col_mc_left:
-                            fig_mc = go.Figure()
-                            # Performans için ilk 100 senaryo
-                            for i in range(min(100, 1000)):
-                                fig_mc.add_trace(go.Scatter(y=mc_results[i], mode='lines', 
-                                                           line=dict(width=0.5), opacity=0.15, showlegend=False))
-                            
-                            mean_path = mc_results.mean(axis=1)
-                            fig_mc.add_trace(go.Scatter(y=mean_path, name="Beklenen Değer", line=dict(color='gold', width=3)))
-                            fig_mc.update_layout(template="plotly_dark", height=500, yaxis_title="Fiyat (TL)", xaxis_title="Gün")
-                            st.plotly_chart(fig_mc, use_container_width=True)
-                        
-                        with col_mc_right:
-                            st.write("#### 📊 Risk İstatistikleri")
-                            target_10 = last_price * 1.10
-                            prob_up = (mc_results.iloc[-1] > target_10).mean() * 100
-                            var_95 = np.percentile(mc_results.iloc[-1], 5)
-                            
-                            st.metric("10% Yükseliş İhtimali", f"%{prob_up:.1f}")
-                            st.metric("En Kötü Senaryo (VaR)", f"{var_95:.2f} TL")
-                            
-                            if current_rsi < 30:
-                                st.success("💡 RSI: Aşırı Satım (Fırsat olabilir)")
-                            elif current_rsi > 70:
-                                st.error("⚠️ RSI: Aşırı Alım (Düzeltme gelebilir)")
-
-                with tab_corr:
-                    st.subheader("Piyasa Enstrümanları ile İlişki Matrisi")
-                    other_assets = ["XU100.IS", "USDTRY=X", "GC=F", "BTC-USD"]
-                    corr_data = pd.DataFrame({symbol_input: df['Close']})
-                    
-                    with st.spinner("Korelasyon verileri çekiliyor..."):
-                        for asset in other_assets:
-                            a_df = engine.get_stock_data(asset)
-                            if a_df is not None:
-                                corr_data[asset] = a_df['Close']
-                        
-                        matrix = corr_data.dropna().pct_change().corr()
-                        fig_heat = px.imshow(matrix, text_auto=".2f", color_continuous_scale='RdBu_r', title="Korelasyon Isı Haritası")
-                        fig_heat.update_layout(template="plotly_dark")
-                        st.plotly_chart(fig_heat, use_container_width=True)
-            else:
-                st.error("Sembol verisi çekilemedi. Lütfen internet bağlantınızı ve sembolü (.IS eki dahil) kontrol edin.")
+            with t_risk:
+                st.subheader("Son Haber Başlıkları")
+                for n in news:
+                    st.write(f"🔹 [{n['title']}]({n['link']})")
 
 if __name__ == "__main__":
     main()
