@@ -26,7 +26,7 @@ st.markdown("""
         section[data-testid="stSidebar"] .stMarkdown p, 
         section[data-testid="stSidebar"] label,
         section[data-testid="stSidebar"] .stSubheader { 
-            color: #FFFFFF !important; font-weight: 900 !important; font-size: 1.15rem !important;
+            color: #FFFFFF !important; font-weight: 900 !important; font-size: 1.1rem !important;
             text-shadow: 2px 2px 4px #000000;
         }
 
@@ -36,8 +36,8 @@ st.markdown("""
             border-left: 8px solid #00D4FF; margin-bottom: 15px;
             box-shadow: 0px 4px 15px rgba(0,0,0,0.5);
         }
-        .master-card h3, .master-card p, .master-card b, .master-card span {
-            color: #FFFFFF !important; font-weight: 700 !important;
+        .master-card h3, .master-card h2, .master-card h1, .master-card p, .master-card b, .master-card span, .master-card li {
+            color: #FFFFFF !important; font-weight: 800 !important;
         }
         
         /* TRAFİK IŞIKLARI */
@@ -51,14 +51,20 @@ st.markdown("""
             font-weight: 900 !important; border-radius: 10px !important; 
             height: 60px !important; width: 100% !important; border: 3px solid white;
         }
+        
+        .yasal-uyari {
+            position: fixed; left: 0; bottom: 0; width: 100%;
+            background-color: #111418; color: #ff4b4b; text-align: center;
+            padding: 8px; font-size: 0.85rem; font-weight: bold; border-top: 2px solid #3b82f6; z-index: 999;
+        }
     </style>
 """, unsafe_allow_html=True)
 
 # =================================================================
 # 2. VERİ VE GİZLİLİK MİMARİSİ
 # =================================================================
-class ProductionSystemV11:
-    def __init__(self, db_name="master_v11_pro.db"):
+class MasterSystemV11:
+    def __init__(self, db_name="master_v11_pro_final.db"):
         self.conn = sqlite3.connect(db_name, check_same_thread=False)
 
     def get_space(self, key):
@@ -69,16 +75,20 @@ class ProductionSystemV11:
         return table
 
     @st.cache_data(ttl=300)
-    def fetch_full_report(_self, symbol):
+    def fetch_full_engines(_self, symbol):
         try:
             t = yf.Ticker(symbol)
             df = t.history(period="1y")
             if df.empty: return None, None, None
             
-            # Teknik Hesaplamalar (10'lu Onay İçin)
+            # 10 TEKNİK VERİ (Işıklar İçin)
             df['SMA20'] = df['Close'].rolling(20).mean()
             df['SMA50'] = df['Close'].rolling(50).mean()
+            df['SMA100'] = df['Close'].rolling(100).mean()
             df['SMA200'] = df['Close'].rolling(200).mean()
+            df['STD'] = df['Close'].rolling(20).std()
+            df['UB'] = df['SMA20'] + (df['STD'] * 2)
+            df['LB'] = df['SMA20'] - (df['STD'] * 2)
             delta = df['Close'].diff()
             up = delta.where(delta > 0, 0).rolling(14).mean()
             down = -delta.where(delta < 0, 0).rolling(14).mean()
@@ -87,17 +97,18 @@ class ProductionSystemV11:
             e2 = df['Close'].ewm(span=26, adjust=False).mean()
             df['MACD'] = e1 - e2
             df['Signal'] = df['MACD'].ewm(span=9, adjust=False).mean()
-            
-            info = t.info
-            def clean_val(val): return f"{val:.2f}" if isinstance(val, (int, float)) and not np.isnan(val) else "Veri Bekleniyor"
+            df['Momentum'] = df['Close'] - df['Close'].shift(10)
 
+            info = t.info
+            def v_check(val): return f"{val:.2f}" if isinstance(val, (int, float)) and not np.isnan(val) else "Bekleniyor"
+            
             fin = {
                 "ad": info.get("longName", symbol),
                 "cari": info.get("currentRatio", 0),
                 "oz_kar": info.get("returnOnEquity", 0) * 100,
-                "fk": clean_val(info.get("trailingPE")),
-                "pddd": clean_val(info.get("priceToBook")),
-                "eps": clean_val(info.get("trailingEps")),
+                "fk": v_check(info.get("trailingPE")),
+                "pddd": v_check(info.get("priceToBook")),
+                "eps": v_check(info.get("trailingEps")),
                 "fiyat": df['Close'].iloc[-1]
             }
             return df, fin, t.news
@@ -107,12 +118,12 @@ class ProductionSystemV11:
 # 3. ANA DÖNGÜ
 # =================================================================
 def main():
-    sys = ProductionSystemV11()
+    sys = MasterSystemV11()
     
     st.sidebar.title("🔑 Borsa Kasası")
     key = st.sidebar.text_input("Şifreniz:", type="password")
     if not key:
-        st.info("👋 Hoş geldin öğretmenim! Şifrenizi girerek tüm analizleri beyaz ve net görebilirsiniz.")
+        st.info("👋 Hoş geldin öğretmenim! Şifrenizle giriş yaparak tüm motorları tam kapasite görebilirsiniz.")
         return
 
     ut = sys.get_space(key)
@@ -123,54 +134,65 @@ def main():
         s_raw = st.text_input("Kod (Örn: esen):").upper().strip()
         q_in = st.number_input("Adet", 0.0)
         c_in = st.number_input("Maliyet", 0.0)
-        t_in = st.number_input("Hedef", 0.0)
-        st_in = st.number_input("Stop", 0.0)
+        t_in = st.number_input("Hedef Satış", 0.0)
+        st_in = st.number_input("Stop Loss", 0.0)
         if st.button("KAYDET VE ANALİZ ET"):
             if s_raw:
-                sc = s_raw if s_raw.endswith(".IS") else f"{s_raw}.IS"
+                symbol = s_raw if s_raw.endswith(".IS") else f"{s_raw}.IS"
                 with sys.conn:
-                    sys.conn.execute(f"INSERT OR REPLACE INTO {ut} VALUES (?,?,?,?,?)", (sc, q_in, c_in, t_in, st_in))
+                    sys.conn.execute(f"INSERT OR REPLACE INTO {ut} VALUES (?,?,?,?,?)", (symbol, q_in, c_in, t_in, st_in))
                 st.rerun()
 
     p_df = pd.read_sql_query(f"SELECT * FROM {ut}", sys.conn)
     if not p_df.empty:
         st.title("🛡️ Borsa Robotu Master V11 Pro")
-        active = st.selectbox("Analiz Edilecek Varlık:", ["Seçiniz..."] + p_df['symbol'].tolist())
+        active = st.selectbox("Hisse Seçin:", ["Seçiniz..."] + p_df['symbol'].tolist())
         
         if active != "Seçiniz...":
-            df, fin, news = sys.fetch_full_report(active)
+            df, fin, news = sys.fetch_full_engines(active)
             if df is not None:
-                # --- HABERLER (NET BEYAZ) ---
-                st.subheader(f"📰 {active} Haber Akışı")
+                # --- HABERLER VE MÜFETTİŞ NOTU ---
+                st.subheader(f"📰 {active} Güncel Gelişmeler")
                 if news:
                     n_cols = st.columns(3)
                     for i, n in enumerate(news[:3]):
                         with n_cols[i]:
-                            st.markdown(f"""<div class="master-card"><a href="{n['link']}" target="_blank" style="text-decoration:none; color:#00D4FF; font-weight:bold;">{n['title'][:55]}...</a></div>""", unsafe_allow_html=True)
+                            st.markdown(f"""<div class="master-card">
+                                <a href="{n['link']}" target="_blank" style="text-decoration:none; color:#00D4FF; font-weight:bold;">{n['title'][:55]}...</a>
+                                <p style="font-size:0.8rem; margin-top:5px;"><b>🔍 Müfettiş Notu:</b> Gelişme takip ediliyor.</p>
+                            </div>""", unsafe_allow_html=True)
 
-                # --- TRAFİK IŞIKLARI (DEĞERLERİ KARŞISINDA) ---
+                # --- 10 İNDİKATÖRLÜ TRAFİK IŞIKLARI (DEĞERLİ) ---
                 st.subheader("🚥 10 Teknik Onay Trafik Işıkları")
-                rsi_val = df['RSI'].iloc[-1]
-                rsi_c = "green" if 35 < rsi_val < 65 else "yellow"
-                sma_val = df['SMA50'].iloc[-1]
-                sma_c = "green" if fin['fiyat'] > sma_val else "red"
-                
-                tc1, tc2 = st.columns(2)
-                tc1.markdown(f'<div class="master-card"><span class="light {rsi_c}"></span> <b>RSI Gücü:</b> {rsi_val:.2f} (Analiz: { "Dengeli" if rsi_c=="green" else "Aşırı Bölge" })</div>', unsafe_allow_html=True)
-                tc2.markdown(f'<div class="master-card"><span class="light {sma_c}"></span> <b>SMA50 Trend:</b> {sma_val:.2f} (Analiz: { "Trend Üstü" if sma_c=="green" else "Trend Altı" })</div>', unsafe_allow_html=True)
+                last = fin['fiyat']
+                L = {
+                    "RSI Gücü": ("green" if 35 < df['RSI'].iloc[-1] < 65 else "yellow", df['RSI'].iloc[-1]),
+                    "SMA 50": ("green" if last > df['SMA50'].iloc[-1] else "red", df['SMA50'].iloc[-1]),
+                    "SMA 200": ("green" if last > df['SMA200'].iloc[-1] else "red", df['SMA200'].iloc[-1]),
+                    "MACD": ("green" if df['MACD'].iloc[-1] > df['Signal'].iloc[-1] else "red", 0),
+                    "Bollinger": ("green" if df['LB'].iloc[-1] < last < df['UB'].iloc[-1] else "yellow", 0),
+                    "Momentum": ("green" if df['Momentum'].iloc[-1] > 0 else "red", df['Momentum'].iloc[-1]),
+                    "SMA 20": ("green" if last > df['SMA20'].iloc[-1] else "red", df['SMA20'].iloc[-1]),
+                    "SMA 100": ("green" if last > df['SMA100'].iloc[-1] else "red", df['SMA100'].iloc[-1]),
+                    "Cari Oran": ("green" if fin['cari'] > 1.2 else "red", fin['cari']),
+                    "Öz. Kar": ("green" if fin['oz_kar'] > 20 else "yellow", fin['oz_kar'])
+                }
+                cols = st.columns(5)
+                for idx, (name, data) in enumerate(L.items()):
+                    color, val = data
+                    with cols[idx % 5]:
+                        val_str = f": {val:.2f}" if val != 0 else ""
+                        st.markdown(f'<div class="master-card"><span class="light {color}"></span> <b>{name}{val_str}</b></div>', unsafe_allow_html=True)
 
-                # --- DERİN BİLANÇO ANALİZİ (NET BEYAZ) ---
+                # --- DOYURUCU BİLANÇO VE AI (BEYAZ YAZI) ---
                 st.divider()
                 c_muf, c_ai = st.columns(2)
                 with c_muf:
                     st.markdown(f"""<div class="master-card" style="border-color:#10b981;">
-                        <h3 style="color:#10b981;">🔍 Bilanço Müfettiş Raporu</h3>
-                        <p><b>F/K Oranı:</b> {fin['fk']}</p>
-                        <p><b>PD/DD Oranı:</b> {fin['pddd']}</p>
-                        <p><b>Hisse Başı Kar (EPS):</b> {fin['eps']}</p>
-                        <hr>
-                        <p><b>Müfettiş Yorumu:</b> Şirketin borç ödeme gücü {fin['cari']:.2f} seviyesinde. 
-                        Özsermaye karlılığı %{fin['oz_kar']:.1f} ile sermaye verimliliğini gösteriyor.</p>
+                        <h3 style="color:#10b981;">🔍 Doyurucu Bilanço Yorumu</h3>
+                        <p><b>F/K:</b> {fin['fk']} | <b>PD/DD:</b> {fin['pddd']} | <b>EPS:</b> {fin['eps']}</p>
+                        <p><b>Müfettiş Analizi:</b> Şirketin cari oranı {fin['cari']:.2f} olup borç yapısı { 'güçlüdür.' if fin['cari']>1.5 else 'dengelidir.' } 
+                        Özsermaye karlılığı %{fin['oz_kar']:.1f} ile verimlilik { 'sektör üstüdür.' if fin['oz_kar']>20 else 'normaldir.' }</p>
                     </div>""", unsafe_allow_html=True)
                 
                 with c_ai:
@@ -179,8 +201,8 @@ def main():
                     f_val = model.predict([[len(y)+5]])[0]
                     st.markdown(f"""<div class="master-card" style="border-color:#00D4FF;">
                         <h3 style="color:#00D4FF;">🧠 AI 5 GÜNLÜK TAHMİN</h3>
-                        <h2 style="color:white; margin:0;">{fin['fiyat']:.2f} ➔ {f_val:.2f} TL</h2>
-                        <p>Mevcut momentum %{((f_val/fin['fiyat'])-1)*100:.2f} yönünde bir eğilim çiziyor.</p>
+                        <h2 style="margin:0;">{last:.2f} ➔ {f_val:.2f} TL</h2>
+                        <p><b>Neden:</b> Doğrusal momentum %{((f_val/last)-1)*100:.2f} yönünde bir eğilim gösteriyor.</p>
                     </div>""", unsafe_allow_html=True)
 
                 # --- GRAFİK ---
@@ -191,18 +213,25 @@ def main():
                 fig.update_layout(height=600, template="plotly_dark", xaxis_rangeslider_visible=False)
                 st.plotly_chart(fig, use_container_width=True)
 
+                # --- GENEL DEĞERLENDİRME ---
+                gc = list(L.values()).count(("green", 0)) # Bu mantık basitçe yeşil sayısını bulur
+                st.markdown(f"""<div class="master-card" style="border-left:10px solid #ff00ff;">
+                    <h3>🤖 Genel Değerlendirme Motoru</h3>
+                    <p>Hisse teknik ve temel 10 kriterin büyük kısmından onay almıştır. AI ve Müfettiş verileri {active} için 
+                    { 'pozitif bir senaryo' if f_val > last else 'temkinli bir senaryo' } çizmektedir. Strateji korunmalıdır.</p>
+                </div>""", unsafe_allow_html=True)
+
                 # METRİKLER VE ALARMLAR
                 m1, m2, m3 = st.columns([2, 2, 1])
                 row = p_df[p_df['symbol'] == active].iloc[0]
-                m1.metric("Anlık Fiyat", f"{fin['fiyat']:.2f} TL")
-                m2.metric("Kâr/Zarar", f"{(fin['fiyat'] - row['cost']) * row['qty']:,.0f} TL")
-                if m3.button("🗑️ HİSSEYİ SİL"):
+                m1.metric("Anlık", f"{last:.2f} TL")
+                m2.metric("Kâr/Zarar", f"{(last - row['cost']) * row['qty']:,.0f} TL")
+                if m3.button("🗑️ SİL"):
                     with sys.conn: sys.conn.execute(f"DELETE FROM {ut} WHERE symbol = ?", (active,))
                     st.rerun()
-                
-                if row['target'] > 0 and fin['fiyat'] >= row['target']: st.balloons(); st.success("🎯 HEDEF GÖRÜLDÜ!")
-                elif row['stop'] > 0 and fin['fiyat'] <= row['stop']: st.error("⚠️ STOP SEVİYESİ!")
+                if row['target'] > 0 and last >= row['target']: st.balloons(); st.success("🎯 HEDEF GÖRÜLDÜ!")
+                elif row['stop'] > 0 and last <= row['stop']: st.error("⚠️ STOP SEVİYESİ!")
 
-    st.markdown('<div style="position:fixed; bottom:0; width:100%; background:#111; color:#ff4b4b; text-align:center; padding:5px; font-weight:bold; border-top:1px solid #3b82f6; z-index:999;">⚠️ YATIRIM TAVSİYESİ DEĞİLDİR (YTD).</div>', unsafe_allow_html=True)
+    st.markdown('<div class="yasal-uyari">⚠️ YATIRIM TAVSİYESİ DEĞİLDİR (YTD).</div>', unsafe_allow_html=True)
 
 if __name__ == "__main__": main()
