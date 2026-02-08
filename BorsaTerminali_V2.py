@@ -8,212 +8,221 @@ import sqlite3
 from sklearn.linear_model import LinearRegression
 
 # =================================================================
-# 1. TASARIM VE MOBİL UYUM (PWA) - KRİSTAL NETLİK
+# 1. TASARIM VE KRİSTAL OKUNURLUK (PRODUCTION LEVEL)
 # =================================================================
-st.set_page_config(page_title="Borsa Robotu Master V7", layout="wide", page_icon="📈")
+st.set_page_config(page_title="Borsa Robotu Master V7 Pro", layout="wide", page_icon="🏦")
 
 st.markdown("""
     <style>
         .stApp { background-color: #0E1117; }
         section[data-testid="stSidebar"] { background-color: #111418 !important; border-right: 2px solid #00D4FF; }
         
-        /* Sidebar Okunurluk */
-        section[data-testid="stSidebar"] label, section[data-testid="stSidebar"] p, section[data-testid="stSidebar"] h2 { 
-            color: #FFFFFF !important; font-weight: 900 !important; font-size: 1.1rem !important; 
+        /* BİLANÇO KARAR KARTLARI */
+        .status-card {
+            padding: 20px; border-radius: 15px; margin-bottom: 15px; border-left: 10px solid;
+            box-shadow: 0px 4px 15px rgba(0,0,0,0.4);
         }
-        
-        /* BİLANÇO VE AI KARTLARI */
-        .master-card {
-            background: #1e293b; padding: 20px; border-radius: 15px; 
-            border-left: 8px solid #00D4FF; margin-bottom: 15px;
-            box-shadow: 0px 4px 15px rgba(0,0,0,0.5);
-        }
-        .card-title { color: #00D4FF !important; font-weight: 800; margin: 0; font-size: 0.9rem; }
-        .card-text { color: #FFFFFF !important; font-weight: 600; margin-top: 5px; font-size: 1rem; }
+        .olumlu { background-color: #064e3b; border-color: #10b981; color: #ecfdf5; }
+        .olumsuz { background-color: #7f1d1d; border-color: #ef4444; color: #fef2f2; }
+        .notur { background-color: #334155; border-color: #94a3b8; color: #f1f5f9; }
 
-        /* KAYDET BUTONU - EN ÜSTTE VE PARLAK */
+        /* DEV KAYDET BUTONU */
         .stButton>button {
             background-color: #00D4FF !important; color: #000000 !important;
             font-weight: 900 !important; border-radius: 12px !important; 
-            height: 65px !important; width: 100% !important;
-            border: 3px solid #FFFFFF !important; font-size: 1.3rem !important;
+            height: 60px !important; width: 100% !important;
+            border: 2px solid #FFFFFF !important; font-size: 1.2rem !important;
         }
         
-        /* GİRİŞ KUTULARI */
-        div[data-testid="stTextInput"] input, div[data-testid="stNumberInput"] input {
-            color: #000000 !important; background-color: #FFFFFF !important; font-weight: bold !important;
-        }
+        /* OKUNUR METİNLER */
+        .card-desc { font-size: 1rem; font-weight: 500; line-height: 1.4; }
+        label, p { color: white !important; font-weight: 700 !important; }
     </style>
 """, unsafe_allow_html=True)
 
 # =================================================================
-# 2. GİZLİLİK ODAKLI VERİ SAKLAMA
+# 2. HIZLI VERİ VE PORTFÖY YÖNETİMİ
 # =================================================================
-class PersonalStorage:
-    def __init__(self, db_name="borsa_robotu_v7_final.db"):
+class ProductionStorage:
+    def __init__(self, db_name="master_portfoy_v7.db"):
         self.conn = sqlite3.connect(db_name, check_same_thread=False)
+        self._init_db()
 
-    def get_user_space(self, key):
+    def _init_db(self):
+        # Genel portföy yapısı
+        pass
+
+    def get_user_table(self, key):
         safe_key = "".join(filter(str.isalnum, key))
+        table_name = f"u_{safe_key}"
         with self.conn:
-            self.conn.execute(f"CREATE TABLE IF NOT EXISTS u_{safe_key} (symbol TEXT PRIMARY KEY, qty REAL, cost REAL, target REAL, stop REAL)")
-        return f"u_{safe_key}"
+            self.conn.execute(f"CREATE TABLE IF NOT EXISTS {table_name} (symbol TEXT PRIMARY KEY, qty REAL, cost REAL, target REAL, stop REAL)")
+        return table_name
 
-    def save(self, table, s, q, c, t, stp):
+    def save_stock(self, table, s, q, c, t, stp):
         with self.conn:
             self.conn.execute(f"INSERT OR REPLACE INTO {table} VALUES (?,?,?,?,?)", (s, q, c, t, stp))
 
-    def get_all(self, table):
+    def get_portfolio(self, table):
         try: return pd.read_sql_query(f"SELECT * FROM {table}", self.conn)
         except: return pd.DataFrame()
 
-    def delete(self, table, s):
+    def remove_stock(self, table, s):
         with self.conn: self.conn.execute(f"DELETE FROM {table} WHERE symbol = ?", (s,))
 
 # =================================================================
-# 3. HIZLI ANALİZ VE ÇİFT AI MOTORU
+# 3. MÜFETTİŞ ANALİZ MOTORU (HIZLANDIRILMIŞ)
 # =================================================================
-class AnalystSystem:
+class StockInspector:
     @staticmethod
-    @st.cache_data(ttl=600) # Verileri 10 dakika önbelleğe alır, hız kazandırır.
-    def fetch_analysis(symbol):
+    @st.cache_data(ttl=300) # 5 Dakika boyunca veriyi hafızada tutar, hızı 10 kat artırır.
+    def get_comprehensive_data(symbol):
         try:
             t = yf.Ticker(symbol)
             df = t.history(period="1y")
-            if df.empty: return None, None
+            if df.empty: return None, None, None
             
-            # Teknik İndikatörler
+            # Teknik Hesaplamalar
             df['SMA50'] = df['Close'].rolling(50).mean()
             df['SMA200'] = df['Close'].rolling(200).mean()
+            # RSI
             delta = df['Close'].diff()
-            g = (delta.where(delta > 0, 0)).rolling(14).mean()
-            l = (-delta.where(delta < 0, 0)).rolling(14).mean()
+            g = delta.where(delta > 0, 0).rolling(14).mean()
+            l = -delta.where(delta < 0, 0).rolling(14).mean()
             df['RSI'] = 100 - (100 / (1 + (g / (l + 1e-9))))
-            df['MB'] = df['Close'].rolling(20).mean()
-            df['UB'] = df['MB'] + (df['Close'].rolling(20).std() * 2)
-            df['LB'] = df['MB'] - (df['Close'].rolling(20).std() * 2)
-            exp1 = df['Close'].ewm(span=12, adjust=False).mean()
-            exp2 = df['Close'].ewm(span=26, adjust=False).mean()
-            df['MACD'] = exp1 - exp2
-            df['Signal'] = df['MACD'].ewm(span=9, adjust=False).mean()
-
+            
             info = t.info
-            fin = {
+            # Bilanço Müfettişi Verileri
+            fin_report = {
                 "ad": info.get("longName", "Bilinmiyor"),
+                "net_kar": info.get("netIncomeToCommon", 0),
+                "cari_oran": info.get("currentRatio", 0),
+                "ozsermaye_kar": info.get("returnOnEquity", 0) * 100,
                 "fk": info.get("trailingPE", "N/A"),
                 "pddd": info.get("priceToBook", "N/A"),
-                "cari": info.get("currentRatio", 0),
-                "oz_kar": info.get("returnOnEquity", 0) * 100
+                "borc_ozkaynak": info.get("debtToEquity", 0)
             }
-            return df, fin
-        except: return None, None
+            return df, fin_report, t
+        except: return None, None, None
 
     @staticmethod
-    def dual_ai_engine(df):
-        try:
-            y = df['Close'].values[-100:]
-            x = np.arange(len(y)).reshape(-1, 1)
-            model = LinearRegression().fit(x, y)
-            f_x = np.array([len(y) + i for i in range(5)]).reshape(-1, 1)
-            preds = model.predict(f_x)
-            
-            rsi = df['RSI'].iloc[-1]
-            conf = 92 if 45 < rsi < 65 else 68
-            return preds, conf
-        except: return None, 0
+    def judge_balance_sheet(fin):
+        score = 0
+        reasons = []
+        
+        # Kar/Zarar Kontrolü
+        if fin['net_kar'] > 0:
+            score += 1
+            reasons.append(f"✅ Şirket son dönemde {fin['net_kar']/1e6:.1f} Milyon TL kâr açıkladı.")
+        else:
+            score -= 1
+            reasons.append("❌ Şirket son dönemde zarar açıkladı, nakit akışı riskli.")
+
+        # Borç Ödeme Gücü (Cari Oran)
+        if fin['cari_oran'] > 1.5:
+            score += 1
+            reasons.append(f"✅ Cari Oran {fin['cari_oran']:.2f}: Borç ödeme gücü çok yüksek.")
+        elif fin['cari_oran'] < 1:
+            score -= 1
+            reasons.append(f"❌ Cari Oran {fin['cari_oran']:.2f}: Kısa vadeli borçlar risk yaratabilir.")
+
+        # Verimlilik
+        if fin['ozsermaye_kar'] > 25:
+            score += 1
+            reasons.append(f"✅ Özsermaye Karlılığı %{fin['oz_kar']:.1f}: Müthiş verimlilik.")
+        
+        # Karar Mekanizması
+        if score >= 2: return "olumlu", "OLUMLU", reasons
+        elif score <= -1: return "olumsuz", "OLUMSUZ", reasons
+        else: return "notur", "NÖTR / İZLEMEDE", reasons
 
 # =================================================================
-# 4. ANA PROGRAM DÖNGÜSÜ
+# 4. ANA EKRAN
 # =================================================================
 def main():
-    storage = PersonalStorage()
-    engine = AnalystSystem()
+    db = ProductionStorage()
+    insp = StockInspector()
 
-    st.sidebar.title("🔑 Güvenli Giriş")
-    key = st.sidebar.text_input("Kişisel Şifreniz:", type="password")
+    st.sidebar.title("🔑 Portföy Anahtarı")
+    key = st.sidebar.text_input("Şifrenizi Girin:", type="password", help="Hisseleriniz bu şifre altında saklanır.")
     
     if not key:
-        st.info("👋 Hoş geldin öğretmenim! Arkadaşınızla beraber kullanmaya başlamak için lütfen sol tarafa şifrenizi girin.")
+        st.info("👋 Hoş geldin öğretmenim! Portföyünü oluşturmak veya görmek için lütfen şifreni gir.")
         return
 
-    ut = storage.get_user_space(key)
+    table = db.get_user_table(key)
 
+    # --- HİSSE EKLEME FORMU ---
     st.sidebar.divider()
-    # KAYDET BUTONU EN ÜSTTE
-    s_in = st.sidebar.text_input("Hisse Kodu (küçük girilebilir):").upper().strip()
-    q_in = st.sidebar.number_input("Adet", min_value=0.0)
-    c_in = st.sidebar.number_input("Maliyet", min_value=0.0)
-    t_in = st.sidebar.number_input("Hedef Fiyat", min_value=0.0)
-    st_in = st.sidebar.number_input("Stop Fiyat", min_value=0.0)
+    st.sidebar.subheader("➕ Yeni Hisse Ekle")
+    raw_s = st.sidebar.text_input("Hisse Kodu (Örn: esen, thyao):").strip().upper()
+    q_in = st.sidebar.number_input("Adet", min_value=0.0, step=1.0)
+    c_in = st.sidebar.number_input("Maliyet (TL)", min_value=0.0)
+    t_in = st.sidebar.number_input("Hedef Satış", min_value=0.0)
+    st_in = st.sidebar.number_input("Stop Loss", min_value=0.0)
     
-    if st.sidebar.button("📊 KAYDET VE ANALİZ ET"):
-        if s_in:
-            # Otomatik büyük harf ve .IS ekleme
-            sc = s_in if s_in.endswith(".IS") else s_in + ".IS"
-            storage.save(ut, sc, q_in, c_in, t_in, st_in)
+    if st.sidebar.button("PORTFÖYE EKLE"):
+        if raw_s:
+            s_code = raw_s if raw_s.endswith(".IS") else f"{raw_s}.IS"
+            db.save_stock(table, s_code, q_in, c_in, t_in, st_in)
             st.rerun()
 
-    p_df = storage.get_all(ut)
-    if not p_df.empty:
-        st.title("🛡️ Borsa Robotu Master V7")
-        # Birden çok hisseyi buradan seçip analiz edebilir
-        active = st.selectbox("Analiz Edilecek Varlık Listesi:", p_df['symbol'].tolist())
-        df, fin = engine.fetch_analysis(active)
+    # --- PORTFÖY GÖRÜNÜMÜ ---
+    port_df = db.get_portfolio(table)
+    
+    if not port_df.empty:
+        st.title("🛡️ Master Portföy ve Müfettiş Analizi")
+        selected_stock = st.selectbox("Analiz Edilecek Hisseni Seç:", port_df['symbol'].tolist())
+        
+        df, fin, t_obj = insp.get_comprehensive_data(selected_stock)
         
         if df is not None:
-            preds, conf = engine.dual_ai_engine(df)
+            class_name, label, reasons = insp.judge_balance_sheet(fin)
             
-            # --- AI VE BİLANÇO ANALİZİ ---
-            c_ai, c_fin = st.columns(2)
-            with c_ai:
-                st.markdown(f"""<div class="master-card">
-                    <p class="card-title">🧠 ÇİFT MOTORLU AI TAHMİNİ (5 GÜN)</p>
-                    <h1 style="color:white; margin:0;">{preds[0]:.2f} ➔ {preds[-1]:.2f} TL</h1>
-                    <p class="card-text">📊 Güven Skoru: %{conf}</p>
-                </div>""", unsafe_allow_html=True)
+            # --- 1. MÜFETTİŞ KARARI VE AI ---
+            col_ai, col_fin = st.columns(2)
             
-            with c_fin:
-                c_sts = "🟢" if fin['cari'] > 1.5 else "🟡" if fin['cari'] > 1 else "🔴"
-                k_sts = "🟢" if fin['oz_kar'] > 20 else "🟡" if fin['oz_kar'] > 0 else "🔴"
-                st.markdown(f"""<div class="master-card">
-                    <p class="card-title">🧾 BİLANÇO OKURYAZARI (ÖZET)</p>
-                    <p class="card-text">{c_sts} <b>Borç Ödeme:</b> Durum { 'Güçlü' if fin['cari']>1.5 else 'Zayıf' }.</p>
-                    <p class="card-text">{k_sts} <b>Karlılık:</b> Verim %{fin['oz_kar']:.1f}.</p>
+            with col_ai:
+                # AI Projeksiyon (Hızlı Linear Regression)
+                y = df['Close'].values[-60:]
+                x = np.arange(len(y)).reshape(-1, 1)
+                model = LinearRegression().fit(x, y)
+                future_val = model.predict([[len(y)+5]])[0]
+                
+                st.markdown(f"""<div class="status-card notur">
+                    <p class="card-title">🧠 AI YOL HARİTASI (5 GÜN)</p>
+                    <h1 style="color:white; margin:0;">{df['Close'].iloc[-1]:.2f} ➔ {future_val:.2f} TL</h1>
+                    <p style="margin:0; opacity:0.8;">Trend yönü doğrusal olarak hesaplandı.</p>
                 </div>""", unsafe_allow_html=True)
 
-            # --- TEKNİK GRAFİKLER ---
-            fig = make_subplots(rows=3, cols=1, shared_xaxes=True, vertical_spacing=0.05, 
-                               subplot_titles=('Fiyat & Bollinger & Trendler', 'MACD Sinyali', 'RSI Güç Endeksi'),
-                               row_heights=[0.5, 0.25, 0.25])
-            fig.add_trace(go.Candlestick(x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'], name="Fiyat"), row=1, col=1)
-            fig.add_trace(go.Scatter(x=df.index, y=df['UB'], line=dict(color='gray', width=1), name="Üst Bant"), row=1, col=1)
-            fig.add_trace(go.Scatter(x=df.index, y=df['LB'], line=dict(color='gray', width=1), name="Alt Bant", fill='tonexty'), row=1, col=1)
-            fig.add_trace(go.Scatter(x=df.index, y=df['SMA50'], line=dict(color='gold', width=2), name="SMA50"), row=1, col=1)
-            fig.add_trace(go.Scatter(x=df.index, y=df['SMA200'], line=dict(color='red', width=2), name="SMA200"), row=1, col=1)
-            fig.add_trace(go.Scatter(x=df.index, y=df['MACD'], line=dict(color='cyan'), name="MACD"), row=2, col=1)
-            fig.add_trace(go.Scatter(x=df.index, y=df['RSI'], line=dict(color='magenta'), name="RSI"), row=3, col=1)
-            fig.update_layout(height=850, template="plotly_dark", xaxis_rangeslider_visible=False)
+            with col_fin:
+                st.markdown(f"""<div class="status-card {class_name}">
+                    <p class="card-title">🔍 BİLANÇO MÜFETTİŞİ: {label}</p>
+                    <div class="card-desc">{'<br>'.join(reasons)}</div>
+                </div>""", unsafe_allow_html=True)
+
+            # --- 2. TEKNİK GRAFİK ---
+            fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.1, subplot_titles=('Fiyat ve Trendler', 'RSI Güç'), row_heights=[0.7, 0.3])
+            fig.add_trace(go.Candlestick(x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'], name="Mum"), row=1, col=1)
+            fig.add_trace(go.Scatter(x=df.index, y=df['SMA50'], line=dict(color='gold'), name="SMA50"), row=1, col=1)
+            fig.add_trace(go.Scatter(x=df.index, y=df['RSI'], line=dict(color='magenta'), name="RSI"), row=2, col=1)
+            fig.update_layout(height=600, template="plotly_dark", xaxis_rangeslider_visible=False)
             st.plotly_chart(fig, use_container_width=True)
 
-            # --- METRİKLER VE ALARMLAR ---
+            # --- 3. PORTFÖY DURUMU VE SİLME ---
             m1, m2, m3 = st.columns([2, 2, 1])
-            curr_p = df['Close'].iloc[-1]
-            m1.metric("Anlık Fiyat", f"{curr_p:.2f} TL")
-            row = p_df[p_df['symbol'] == active].iloc[0]
-            kz = (curr_p - row['cost']) * row['qty']
-            m2.metric("Kâr/Zarar", f"{kz:,.0f} TL", f"{((curr_p/row['cost'])-1)*100:.2f}%")
+            curr_price = df['Close'].iloc[-1]
+            row = port_df[port_df['symbol'] == selected_stock].iloc[0]
             
-            if m3.button(f"🗑️ SİL"):
-                storage.delete(ut, active); st.rerun()
+            m1.metric("Anlık", f"{curr_price:.2f} TL")
+            net_kz = (curr_price - row['cost']) * row['qty']
+            m2.metric("Kâr/Zarar", f"{net_kz:,.0f} TL", f"{((curr_price/row['cost'])-1)*100:.2f}%")
             
-            # GÖRSEL ALARMLAR
-            if row['target'] > 0 and curr_p >= row['target']:
-                st.balloons(); st.success(f"🎯 HEDEF FİYAT ({row['target']} TL) GÖRÜLDÜ!")
-            elif row['stop'] > 0 and curr_p <= row['stop']:
-                st.error(f"⚠️ STOP SEVİYESİ ({row['stop']} TL) ALTINA İNİLDİ!")
+            if m3.button("🗑️ BU HİSSEYİ SİL"):
+                db.remove_stock(table, selected_stock); st.rerun()
 
     else:
-        st.info("👈 Başlamak için şifrenizi girin ve sol taraftan ilk hissenizi kaydedin.")
+        st.warning("👈 Portföyün henüz boş. Sol taraftan şifreni gir ve hisselerini eklemeye baş!")
 
 if __name__ == "__main__":
     main()
