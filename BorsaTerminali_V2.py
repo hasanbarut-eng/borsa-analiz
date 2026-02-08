@@ -26,7 +26,7 @@ st.markdown("""
         section[data-testid="stSidebar"] .stMarkdown p, 
         section[data-testid="stSidebar"] label,
         section[data-testid="stSidebar"] .stSubheader { 
-            color: #FFFFFF !important; font-weight: 900 !important; font-size: 1.1rem !important;
+            color: #FFFFFF !important; font-weight: 900 !important; font-size: 1.15rem !important;
             text-shadow: 2px 2px 4px #000000;
         }
 
@@ -63,8 +63,8 @@ st.markdown("""
 # =================================================================
 # 2. VERİ VE GİZLİLİK MİMARİSİ
 # =================================================================
-class MasterSystemV11:
-    def __init__(self, db_name="master_v11_pro_final.db"):
+class MasterSystemFinal:
+    def __init__(self, db_name="master_robot_v11_pro.db"):
         self.conn = sqlite3.connect(db_name, check_same_thread=False)
 
     def get_space(self, key):
@@ -75,7 +75,7 @@ class MasterSystemV11:
         return table
 
     @st.cache_data(ttl=300)
-    def fetch_full_engines(_self, symbol):
+    def fetch_everything(_self, symbol):
         try:
             t = yf.Ticker(symbol)
             df = t.history(period="1y")
@@ -100,7 +100,7 @@ class MasterSystemV11:
             df['Momentum'] = df['Close'] - df['Close'].shift(10)
 
             info = t.info
-            def v_check(val): return f"{val:.2f}" if isinstance(val, (int, float)) and not np.isnan(val) else "Bekleniyor"
+            def v_check(val): return f"{val:.2f}" if isinstance(val, (int, float)) and not np.isnan(val) else "Veri Bekleniyor"
             
             fin = {
                 "ad": info.get("longName", symbol),
@@ -118,12 +118,12 @@ class MasterSystemV11:
 # 3. ANA DÖNGÜ
 # =================================================================
 def main():
-    sys = MasterSystemV11()
+    sys = MasterSystemFinal()
     
-    st.sidebar.title("🔑 Borsa Kasası")
-    key = st.sidebar.text_input("Şifreniz:", type="password")
+    st.sidebar.title("🔑 Borsa Robotu Giriş")
+    key = st.sidebar.text_input("Özel Şifreniz:", type="password")
     if not key:
-        st.info("👋 Hoş geldin öğretmenim! Şifrenizle giriş yaparak tüm motorları tam kapasite görebilirsiniz.")
+        st.info("👋 Merhaba öğretmenim! Lütfen kasanı açmak için şifreni gir. Sonra KAP haberleri dahil her şey yüklenecek.")
         return
 
     ut = sys.get_space(key)
@@ -134,9 +134,9 @@ def main():
         s_raw = st.text_input("Kod (Örn: esen):").upper().strip()
         q_in = st.number_input("Adet", 0.0)
         c_in = st.number_input("Maliyet", 0.0)
-        t_in = st.number_input("Hedef Satış", 0.0)
-        st_in = st.number_input("Stop Loss", 0.0)
-        if st.button("KAYDET VE ANALİZ ET"):
+        t_in = st.number_input("Hedef Fiyat", 0.0)
+        st_in = st.number_input("Stop Fiyat", 0.0)
+        if st.button("PORTFÖYE EKLE"):
             if s_raw:
                 symbol = s_raw if s_raw.endswith(".IS") else f"{s_raw}.IS"
                 with sys.conn:
@@ -146,23 +146,23 @@ def main():
     p_df = pd.read_sql_query(f"SELECT * FROM {ut}", sys.conn)
     if not p_df.empty:
         st.title("🛡️ Borsa Robotu Master V11 Pro")
-        active = st.selectbox("Hisse Seçin:", ["Seçiniz..."] + p_df['symbol'].tolist())
+        active = st.selectbox("İncelemek İstediğiniz Hisseni Seç:", ["Seçiniz..."] + p_df['symbol'].tolist())
         
         if active != "Seçiniz...":
-            df, fin, news = sys.fetch_full_engines(active)
+            df, fin, news = sys.fetch_everything(active)
             if df is not None:
-                # --- HABERLER VE MÜFETTİŞ NOTU ---
-                st.subheader(f"📰 {active} Güncel Gelişmeler")
+                # --- HABERLER VE KAP PANELİ ---
+                st.subheader(f"📰 {active} Son Dakika KAP ve Haberler")
                 if news:
                     n_cols = st.columns(3)
                     for i, n in enumerate(news[:3]):
                         with n_cols[i]:
                             st.markdown(f"""<div class="master-card">
                                 <a href="{n['link']}" target="_blank" style="text-decoration:none; color:#00D4FF; font-weight:bold;">{n['title'][:55]}...</a>
-                                <p style="font-size:0.8rem; margin-top:5px;"><b>🔍 Müfettiş Notu:</b> Gelişme takip ediliyor.</p>
+                                <p style="font-size:0.8rem; margin-top:10px; opacity:0.8;"><b>🔍 Müfettiş:</b> {n['publisher']} üzerinden gelen bu haber takip edilmelidir.</p>
                             </div>""", unsafe_allow_html=True)
 
-                # --- 10 İNDİKATÖRLÜ TRAFİK IŞIKLARI (DEĞERLİ) ---
+                # --- 10 İNDİKATÖRLÜ TRAFİK IŞIKLARI ---
                 st.subheader("🚥 10 Teknik Onay Trafik Işıkları")
                 last = fin['fiyat']
                 L = {
@@ -172,10 +172,10 @@ def main():
                     "MACD": ("green" if df['MACD'].iloc[-1] > df['Signal'].iloc[-1] else "red", 0),
                     "Bollinger": ("green" if df['LB'].iloc[-1] < last < df['UB'].iloc[-1] else "yellow", 0),
                     "Momentum": ("green" if df['Momentum'].iloc[-1] > 0 else "red", df['Momentum'].iloc[-1]),
-                    "SMA 20": ("green" if last > df['SMA20'].iloc[-1] else "red", df['SMA20'].iloc[-1]),
-                    "SMA 100": ("green" if last > df['SMA100'].iloc[-1] else "red", df['SMA100'].iloc[-1]),
+                    "Kısa Vade": ("green" if last > df['SMA20'].iloc[-1] else "red", df['SMA20'].iloc[-1]),
+                    "Orta Vade": ("green" if last > df['SMA100'].iloc[-1] else "red", df['SMA100'].iloc[-1]),
                     "Cari Oran": ("green" if fin['cari'] > 1.2 else "red", fin['cari']),
-                    "Öz. Kar": ("green" if fin['oz_kar'] > 20 else "yellow", fin['oz_kar'])
+                    "Verimlilik": ("green" if fin['oz_kar'] > 20 else "yellow", fin['oz_kar'])
                 }
                 cols = st.columns(5)
                 for idx, (name, data) in enumerate(L.items()):
@@ -184,17 +184,16 @@ def main():
                         val_str = f": {val:.2f}" if val != 0 else ""
                         st.markdown(f'<div class="master-card"><span class="light {color}"></span> <b>{name}{val_str}</b></div>', unsafe_allow_html=True)
 
-                # --- DOYURUCU BİLANÇO VE AI (BEYAZ YAZI) ---
+                # --- DERİN BİLANÇO VE AI ---
                 st.divider()
                 c_muf, c_ai = st.columns(2)
                 with c_muf:
                     st.markdown(f"""<div class="master-card" style="border-color:#10b981;">
-                        <h3 style="color:#10b981;">🔍 Doyurucu Bilanço Yorumu</h3>
+                        <h3 style="color:#10b981;">🔍 Doyurucu Bilanço Müfettişi</h3>
                         <p><b>F/K:</b> {fin['fk']} | <b>PD/DD:</b> {fin['pddd']} | <b>EPS:</b> {fin['eps']}</p>
-                        <p><b>Müfettiş Analizi:</b> Şirketin cari oranı {fin['cari']:.2f} olup borç yapısı { 'güçlüdür.' if fin['cari']>1.5 else 'dengelidir.' } 
-                        Özsermaye karlılığı %{fin['oz_kar']:.1f} ile verimlilik { 'sektör üstüdür.' if fin['oz_kar']>20 else 'normaldir.' }</p>
+                        <p><b>Analiz:</b> Cari Oran {fin['cari']:.2f} ile likidite { 'sağlamdır.' if fin['cari']>1.5 else 'dengelidir.' } 
+                        Özsermaye karlılığı %{fin['oz_kar']:.1f} seviyesinde, bu da her 100 TL'lik özkaynakta {fin['oz_kar']:.1f} TL kâr üretildiğini gösterir.</p>
                     </div>""", unsafe_allow_html=True)
-                
                 with c_ai:
                     y = df['Close'].values[-60:]
                     model = LinearRegression().fit(np.arange(len(y)).reshape(-1,1), y)
@@ -202,23 +201,25 @@ def main():
                     st.markdown(f"""<div class="master-card" style="border-color:#00D4FF;">
                         <h3 style="color:#00D4FF;">🧠 AI 5 GÜNLÜK TAHMİN</h3>
                         <h2 style="margin:0;">{last:.2f} ➔ {f_val:.2f} TL</h2>
-                        <p><b>Neden:</b> Doğrusal momentum %{((f_val/last)-1)*100:.2f} yönünde bir eğilim gösteriyor.</p>
+                        <p><b>Neden:</b> Regresyon eğimi %{((f_val/last)-1)*100:.2f} yönünde bir ivme gösteriyor.</p>
                     </div>""", unsafe_allow_html=True)
 
                 # --- GRAFİK ---
                 fig = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.7, 0.3], vertical_spacing=0.05)
                 fig.add_trace(go.Candlestick(x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'], name="Fiyat"), row=1, col=1)
-                fig.add_trace(go.Scatter(x=df.index, y=df['SMA50'], line=dict(color='gold'), name="SMA50"), row=1, col=1)
+                fig.add_trace(go.Scatter(x=df.index, y=df['UB'], line=dict(color='gray', width=1), name="Bollinger"), row=1, col=1)
+                fig.add_trace(go.Scatter(x=df.index, y=df['SMA50'], line=dict(color='gold'), name="Trend"), row=1, col=1)
                 fig.add_trace(go.Scatter(x=df.index, y=df['RSI'], line=dict(color='magenta'), name="RSI"), row=2, col=1)
                 fig.update_layout(height=600, template="plotly_dark", xaxis_rangeslider_visible=False)
                 st.plotly_chart(fig, use_container_width=True)
 
-                # --- GENEL DEĞERLENDİRME ---
-                gc = list(L.values()).count(("green", 0)) # Bu mantık basitçe yeşil sayısını bulur
+                # --- ROBOTUN GENEL DEĞERLENDİRMESİ ---
+                green_count = sum(1 for color, val in L.values() if color == "green")
                 st.markdown(f"""<div class="master-card" style="border-left:10px solid #ff00ff;">
-                    <h3>🤖 Genel Değerlendirme Motoru</h3>
-                    <p>Hisse teknik ve temel 10 kriterin büyük kısmından onay almıştır. AI ve Müfettiş verileri {active} için 
-                    { 'pozitif bir senaryo' if f_val > last else 'temkinli bir senaryo' } çizmektedir. Strateji korunmalıdır.</p>
+                    <h3>🤖 Hoca Özeti (Genel Değerlendirme)</h3>
+                    <p>{active} şu an 10 kritik testin {green_count}'inden başarıyla geçti. 
+                    AI tahmini ve bilanço verileri birlikte değerlendirildiğinde {active} için 
+                    { 'pozitif bir ivme beklentisi hakim.' if f_val > last and green_count > 6 else 'dikkatli olunması gereken bir yatay seyir' } öngörülüyor.</p>
                 </div>""", unsafe_allow_html=True)
 
                 # METRİKLER VE ALARMLAR
