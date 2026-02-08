@@ -3,4 +3,4 @@ yfinance
 pandas
 numpy
 plotly
-streamlit-javascript
+scikit-learn
