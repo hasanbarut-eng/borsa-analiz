@@ -41,7 +41,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # =================================================================
-# 2. GÜVENLİK VE VERİ TABANI
+# 2. GÜVENLİK VE VERİ TABANI MOTORU
 # =================================================================
 def check_password():
     if st.session_state.authenticated: return True
@@ -49,17 +49,21 @@ def check_password():
     tab_login, tab_register = st.tabs(["Giriş Yap", "Yeni Şifre Belirle"])
     with tab_register:
         new_pwd = st.text_input("Kasa Şifrenizi Belirleyin:", type="password", key="reg_pwd")
-        if st.button("Şifreyi Kaydet ve Kilitle"):
-            st.session_state.master_password = new_pwd
-            st.session_state.authenticated = True
-            st.rerun()
+        if st.button("Şifreyi Kaydet ve Sistemi Kilitle"):
+            if len(new_pwd) > 0:
+                st.session_state.master_password = new_pwd
+                st.session_state.authenticated = True
+                st.rerun()
+            else:
+                st.error("Şifre boş bırakılamaz.")
     with tab_login:
-        login_pwd = st.text_input("Kasa Şifreniz:", type="password", key="log_pwd")
-        if st.button("Giriş Yap"):
+        login_pwd = st.text_input("Kasa Şifrenizi Girin:", type="password", key="log_pwd")
+        if st.button("Robotu Başlat"):
             if "master_password" in st.session_state and login_pwd == st.session_state.master_password:
                 st.session_state.authenticated = True
                 st.rerun()
-            else: st.error("Hatalı Şifre!")
+            else:
+                st.error("Hatalı şifre!")
     return False
 
 class MasterSystem:
@@ -79,7 +83,7 @@ class MasterSystem:
             df = t.history(period="1y")
             if df.empty: return None, None, [], None, None
             
-            # 10 TEKNİK MOTOR (Kısıtlamasız)
+            # MOTOR 1: 10 TEKNİK İNDİKATÖR (V12 FULL LİSTE)
             df['SMA20'] = df['Close'].rolling(20).mean()
             df['SMA50'] = df['Close'].rolling(50).mean()
             df['SMA200'] = df['Close'].rolling(200).mean()
@@ -94,6 +98,7 @@ class MasterSystem:
             df['Upper'], df['Lower'] = df['SMA20']+(df['STD']*2), df['SMA20']-(df['STD']*2)
             df['Momentum'] = df['Close'].diff(10)
             df['EMA9'] = df['Close'].ewm(span=9).mean()
+            df['Vol_Avg'] = df['Volume'].rolling(20).mean()
             
             info = t.info
             fin = {
@@ -103,13 +108,13 @@ class MasterSystem:
                 "oz_kar": info.get("returnOnEquity", 0) * 100, "cari": info.get("currentRatio", 0),
                 "sektor": info.get("sector", "N/A"), "fiyat": df['Close'].iloc[-1]
             }
-            # HATALARI ÖNLEYEN KRİTİK KORUMA (SASA/ESEN HATA ÇÖZÜMÜ)
+            # KRİTİK HATA ÖNLEYİCİ
             news = t.news if t.news else []
             return df, fin, news, t.quarterly_balance_sheet, t.quarterly_financials
         except Exception: return None, None, [], None, None
 
 # =================================================================
-# 3. ANA TERMİNAL VE KOÇLUK KARAR MERKEZİ
+# 3. ANA TERMİNAL VE KARAR MOTORLARI
 # =================================================================
 def main():
     if not check_password(): return
@@ -118,10 +123,10 @@ def main():
 
     with st.sidebar:
         st.title("🛡️ Master Kontrol")
-        h_kod = st.text_input("Hisse Ekle (SASA, ESEN):").upper().strip()
+        h_kod = st.text_input("Hisse (SASA, ESEN):").upper().strip()
         q_in = st.number_input("Adet:", 0.0); c_in = st.number_input("Maliyet:", 0.0)
         t_in = st.number_input("Hedef:", 0.0); s_in = st.number_input("Stop:", 0.0)
-        if st.button("KAYDET") and h_kod:
+        if st.button("PORTFÖYE KAYDET") and h_kod:
             sym = h_kod if h_kod.endswith(".IS") else f"{h_kod}.IS"
             with sys.conn: sys.conn.execute(f"INSERT OR REPLACE INTO {table} VALUES (?,?,?,?,?)", (sym, q_in, c_in, t_in, s_in))
             st.rerun()
@@ -135,7 +140,7 @@ def main():
             price = fin['fiyat']
             row = p_df[p_df['symbol'] == active].iloc[0]
 
-            # --- MOTOR 1: AI FİNANS KOÇU ---
+            # --- MOTOR 1: AI FİNANS KOÇU (STRATEJİ MERKEZİ) ---
             st.header(f"🏢 {fin['ad']}")
             rsi_v = df['RSI'].iloc[-1]
             trend_ok = price > df['SMA50'].iloc[-1]
@@ -147,31 +152,36 @@ def main():
 
             st.markdown(f"""<div class="coach-box">
                 <h3>🤖 Robot Finans Koçu Karar Raporu</h3>
-                <p><b>Durum Analizi:</b> {fin['sektor']} sektöründe yer alan şirket, %{fin['oz_kar']:.2f} kârlılıkla çalışıyor. 
+                <p><b>Şirket Durumu:</b> {fin['sektor']} sektöründe faaliyet gösteren şirket, %{fin['oz_kar']:.2f} kârlılıkla çalışıyor. 
                 Cari oranı {fin['cari']:.2f} seviyesinde.</p>
-                <p><b>Finans Koçu Tavsiyesi:</b> {tavsiye}</p>
+                <p><b>Koçluk Tavsiyesi:</b> {tavsiye}</p>
                 <p><b>Hedef:</b> {row['target']} TL | <b>Stop:</b> {row['stop']} TL</p>
             </div>""", unsafe_allow_html=True)
 
-            # --- MOTOR 2: SON 10 KAP LİSTESİ ---
+            # --- MOTOR 2: AÇILIR LİSTELİ SON 10 KAP ---
             st.subheader("📰 Son 10 KAP Haberi ve Analizi")
             if news and len(news) > 0:
                 news_titles = [n.get('title', 'Başlıksız Haber') for n in news[:10]]
                 selected_kap = st.selectbox("Yorumlanacak Haberi Seçin:", news_titles)
-                st.info(f"Koçun Notu: {selected_kap[:150]}... haberi temel rasyolar ışığında analiz ediliyor.")
+                st.info(f"Müfettiş Notu: Seçilen haber şirket mali yapısı üzerinden analiz ediliyor...")
             else:
-                st.warning("Bu hisse için şu an KAP haberi bulunamadı.")
+                st.warning("Bu hisse için haber bulunamadı.")
 
             # --- SEKMELİ MOTORLAR ---
             tab1, tab2, tab3 = st.tabs(["📉 Teknik & Trend", "📊 Bilanço & Detay", "🎲 Gelecek Tahmini"])
             
             with tab1:
-                st.subheader("🚥 10 Teknik Onay Işığı")
+                # 10 TEKNİK ONAY IŞIĞI
+                st.subheader("🚥 Teknik Analiz Müfettişi")
+                L = {
+                    "RSI": ("green" if 35<rsi_v<65 else "yellow", rsi_v),
+                    "SMA 50": ("green" if trend_ok else "red", 0),
+                    "MACD": ("green" if df['MACD'].iloc[-1]>df['Signal'].iloc[-1] else "red", 0),
+                    "Hacim": ("green" if df['Volume'].iloc[-1]>df['Vol_Avg'].iloc[-1] else "yellow", 0)
+                }
                 cols = st.columns(4)
-                cols[0].metric("RSI", f"{rsi_v:.2f}")
-                cols[1].metric("Trend", "POZİTİF" if trend_ok else "NEGATİF")
-                cols[2].metric("F/K Oranı", f"{fin['fk']:.2f}")
-                cols[3].metric("PD/DD", f"{fin['pddd']:.2f}")
+                for i, (k, v) in enumerate(L.items()):
+                    with cols[i]: st.markdown(f'<div class="master-card"><span class="light {v[0]}"></span><b>{k}</b></div>', unsafe_allow_html=True)
                 
                 if st.button("📈 TRENDLERİ ÇİZ"):
                     y_tr = df['Close'].values[-60:]; x_tr = np.arange(len(y_tr)).reshape(-1, 1)
@@ -182,11 +192,11 @@ def main():
                 if st.session_state.draw_trend is not None:
                     fig.add_trace(go.Scatter(x=df.index[-60:], y=st.session_state.draw_trend, name="Trend", line=dict(color='yellow', dash='dot')), row=1, col=1)
                 fig.add_trace(go.Scatter(x=df.index, y=df['RSI'], name="RSI", line=dict(color='magenta')), row=2, col=1)
-                fig.update_layout(template="plotly_dark", xaxis_rangeslider_visible=False, height=500)
+                fig.update_layout(template="plotly_dark", xaxis_rangeslider_visible=False, height=600)
                 st.plotly_chart(fig, use_container_width=True)
 
             with tab2:
-                st.subheader("📋 Şirket Profili ve Bilanço")
+                st.subheader("📋 Şirket Özeti ve Finansal Tablo")
                 st.info(fin['ozet'])
                 if balance is not None: st.dataframe(balance.iloc[:10, :4], use_container_width=True)
 
@@ -196,10 +206,10 @@ def main():
                 returns = np.random.normal(0.001, 0.02, days)
                 sim_path = price * (1 + returns).cumprod()
                 dates = [datetime.now() + timedelta(days=i) for i in range(days)]
-                fig_sim = go.Figure(go.Scatter(x=dates, y=sim_path, line=dict(color='#00D4FF')))
-                fig_sim.update_layout(template="plotly_dark", height=400)
+                fig_sim = go.Figure(go.Scatter(x=dates, y=sim_path, name="Olası Yol", line=dict(color='#00D4FF')))
+                fig_sim.update_layout(template="plotly_dark", height=450, xaxis_title="Tahmini Tarih")
                 st.plotly_chart(fig_sim, use_container_width=True)
 
-    st.markdown('<div class="yasal-uyari">⚠️ YATIRIM TAVSİYESİ DEĞİLDİR. (Master Robot V12 Stabil)</div>', unsafe_allow_html=True)
+    st.markdown('<div class="yasal-uyari">⚠️ YATIRIM TAVSİYESİ DEĞİLDİR. (Master Robot V12 Stabil Demir)</div>', unsafe_allow_html=True)
 
 if __name__ == "__main__": main()
