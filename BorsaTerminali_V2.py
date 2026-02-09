@@ -17,10 +17,12 @@ from datetime import datetime, timedelta
 # =================================================================
 st.set_page_config(page_title="Master Robot Ultimate", layout="wide", page_icon="🛡️")
 
+# Otomatik Veri Hafızası (Session State)
 if 'live_prices' not in st.session_state: st.session_state.live_prices = {}
 if 'live_depth' not in st.session_state: st.session_state.live_depth = {}
 if 'live_akd' not in st.session_state: st.session_state.live_akd = {}
 if 'ws_connected' not in st.session_state: st.session_state.ws_connected = False
+if 'draw_trend' not in st.session_state: st.session_state.draw_trend = None
 
 st.markdown("""
     <style>
@@ -49,20 +51,26 @@ def ws_engine(url):
     async def listen():
         while True:
             try:
+                # image_fca63f görselindeki '101 Switching Protocols' bağlantısı
                 async with websockets.connect(url, ping_interval=20) as ws:
                     st.session_state.ws_connected = True
                     while True:
                         msg = await ws.recv()
                         data = json.loads(msg)
+                        
+                        # image_fca663 görselindeki ping/pong trafiği yönetimi
                         if data.get("type") == "ping":
                             await ws.send(json.dumps({"type": "pong"}))
                             continue
+                        
                         symbol = data.get("s", data.get("symbol"))
                         if not symbol: continue
                         s_key = f"{symbol}.IS"
+                        
+                        m_type = data.get("type")
                         if "p" in data: st.session_state.live_prices[s_key] = float(data["p"])
-                        elif data.get("type") == "depth": st.session_state.live_depth[s_key] = data.get("data", [])
-                        elif data.get("type") == "akd": st.session_state.live_akd[s_key] = data.get("data", [])
+                        elif m_type == "depth": st.session_state.live_depth[s_key] = data.get("data", [])
+                        elif m_type == "akd": st.session_state.live_akd[s_key] = data.get("data", [])
             except:
                 st.session_state.ws_connected = False
                 await asyncio.sleep(5)
@@ -74,11 +82,11 @@ def start_threads(url):
         st.session_state.ws_thread_active = True
 
 # =================================================================
-# 3. ANALİZ VE TREND MOTORU
+# 3. ANALİZ VE MATEMATİKSEL MOTORLAR
 # =================================================================
 class MasterSystemUltimate:
     def __init__(self):
-        self.conn = sqlite3.connect("master_ultimate_final.db", check_same_thread=False)
+        self.conn = sqlite3.connect("master_ultimate_v12_final.db", check_same_thread=False)
 
     def get_space(self, key):
         safe = "".join(filter(str.isalnum, key))
@@ -92,7 +100,7 @@ class MasterSystemUltimate:
         try:
             t = yf.Ticker(symbol)
             df = t.history(period="1y")
-            if df.empty: return None, None, None, None, None
+            if df.empty: return None, None, [], None, None
             
             # 10 TEKNİK İNDİKATÖR (V12 STANDARTLARI)
             df['SMA20'] = df['Close'].rolling(20).mean()
@@ -121,14 +129,17 @@ class MasterSystemUltimate:
                 "fiyat": df['Close'].iloc[-1],
                 "halka_acik": (info.get("floatShares", 0) / info.get("sharesOutstanding", 1) * 100) if info.get("sharesOutstanding") else 0
             }
-            return df, fin, t.news, t.quarterly_balance_sheet, t.quarterly_financials
-        except: return None, None, None, None, None
+            # image_2fd6b7'deki hatayı çözen koruma: news boşsa boş liste döndür
+            news = t.news if t.news else []
+            return df, fin, news, t.quarterly_balance_sheet, t.quarterly_financials
+        except: return None, None, [], None, None
 
 # =================================================================
 # 4. ANA PROGRAM (SEKMELİ MİMARİ)
 # =================================================================
 def main():
     sys = MasterSystemUltimate()
+    # image_fca63f görselindeki 'Request URL' değerini buraya yerleştirin
     WS_LINK = "wss://ws.7k2v9x1r0z8t4m3n5p7w.com/?init_data=user%3D%257B%2522id%2522%253A8479457745%252C%2522first_name%2522%253A%2522Hasan%2522%252C%2522last_name%2522%253A%2522%2522%252C%2522language_code%2522%253A%2522tr%2522%252C%2522allows_write_to_pm%2522%253Atrue%252C%2522photo_url%2522%253A%2522https%253A%255C%252F%255C%252Ft.me%255C%252Fi%255C%252Fuserpic%255C%252F320%255C%252FqFQnxlCiDCD3PBWXXq2LYBtQf6-xy3roI737vHv1ZzfLPtDDm6ILM1w-D0z51rMQ.svg%2522%257D%26chat_instance%3D6343175205638196527%26chat_type%3Dsender%26auth_date%3D1770599132%26signature%3DHBPngCoF21mUtuu4RR-a1AcI1IyYqBQjed1ADKfJXrM7zhXTfInvUuyNs3pPUysstbDdVpNUZXZC_zlWc5h3Aw%26hash%3D7c06577956860cbe621177d869355725b7a920ebc449cf12d7f263eefcc89bb0"
     start_threads(WS_LINK)
 
@@ -140,7 +151,7 @@ def main():
 
     with st.sidebar:
         st.write(f"📡 Durum: {'🟢 Canlı' if st.session_state.ws_connected else '🔴 Yedek'}")
-        h_kod = st.text_input("Hisse Ekle:").upper().strip()
+        h_kod = st.text_input("Hisse Ekle (SASA, ESEN):").upper().strip()
         q_in = st.number_input("Adet:", 0.0)
         c_in = st.number_input("Maliyet:", 0.0)
         t_in = st.number_input("Hedef:", 0.0)
@@ -152,7 +163,7 @@ def main():
 
     p_df = pd.read_sql_query(f"SELECT * FROM {table}", sys.conn)
     if not p_df.empty:
-        active = st.selectbox("İncele:", p_df['symbol'].tolist())
+        active = st.selectbox("İncelemek İstediğiniz Hisse:", p_df['symbol'].tolist())
         df, fin, news, balance, financials = sys.fetch_full_data(active)
         
         if df is not None:
@@ -161,10 +172,9 @@ def main():
             
             tab1, tab2, tab3, tab4 = st.tabs(["📉 Teknik Analiz & Trend", "🛒 Canlı Derinlik & AKD", "📋 Temel Analiz & KAP", "🎲 Simülasyon"])
 
-            # --- TAB 1: TEKNİK ANALİZ (10 İNDİKATÖR + TREND + ALARM) ---
+            # --- TAB 1: TEKNİK ANALİZ (10 İNDİKATÖR + TREND ÇİZİMİ + ALARM) ---
             with tab1:
                 st.subheader("🚥 10 Teknik Onay Müfettişi")
-                # ALARM KONTROLÜ
                 if row['target'] > 0 and live_p >= row['target']: st.balloons(); st.success(f"🎯 HEDEF GÖRÜLDÜ: {row['target']} TL")
                 if row['stop'] > 0 and live_p <= row['stop']: st.error(f"⚠️ STOP SEVİYESİ: {row['stop']} TL")
 
@@ -178,7 +188,7 @@ def main():
                     "Momentum": ("green" if df['Momentum'].iloc[-1] > 0 else "red", 0),
                     "Hacim": ("green" if df['Volume'].iloc[-1] > df['Volume'].mean() else "yellow", 0),
                     "SMA 20": ("green" if live_p > df['SMA20'].iloc[-1] else "red", 0),
-                    "Trend Onayı": ("green" if live_p > df['Close'].iloc[-10] else "red", 0)
+                    "Trend": ("green" if live_p > df['Close'].iloc[-20] else "red", 0)
                 }
                 cols = st.columns(5)
                 for i, (k, v) in enumerate(L.items()):
@@ -187,13 +197,12 @@ def main():
                 if st.button("📈 TRENDLERİ ÇİZ"):
                     y_tr = df['Close'].values[-60:]
                     x_tr = np.arange(len(y_tr)).reshape(-1, 1)
-                    model_tr = LinearRegression().fit(x_tr, y_tr)
-                    st.session_state['draw_trend'] = model_tr.predict(x_tr)
+                    st.session_state.draw_trend = LinearRegression().fit(x_tr, y_tr).predict(x_tr)
 
                 fig = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.7, 0.3], vertical_spacing=0.05)
                 fig.add_trace(go.Candlestick(x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'], name="Mum"), row=1, col=1)
-                if 'draw_trend' in st.session_state:
-                    fig.add_trace(go.Scatter(x=df.index[-60:], y=st.session_state['draw_trend'], name="Ana Trend", line=dict(color='yellow', dash='dot')), row=1, col=1)
+                if st.session_state.draw_trend is not None:
+                    fig.add_trace(go.Scatter(x=df.index[-60:], y=st.session_state.draw_trend, name="Ana Trend", line=dict(color='yellow', dash='dot')), row=1, col=1)
                 fig.add_trace(go.Scatter(x=df.index, y=df['RSI'], name="RSI", line=dict(color='magenta')), row=2, col=1)
                 fig.update_layout(template="plotly_dark", xaxis_rangeslider_visible=False, height=600)
                 st.plotly_chart(fig, use_container_width=True)
@@ -205,25 +214,28 @@ def main():
                     st.subheader("🛒 Derinlik (Kademeler)")
                     depth = st.session_state.live_depth.get(active, [])
                     if depth: st.table(pd.DataFrame(depth))
-                    else: st.info("Derinlik bekleniyor... Botta ilgili hisseyi açın.")
+                    else: st.info("Derinlik bekleniyor... Botta ilgili hisse detayını açın.")
                 with col_a:
                     st.subheader("🤝 AKD (Mal Toplama/Boşaltma)")
                     akd = st.session_state.live_akd.get(active, [])
                     if akd:
-                        st.dataframe(pd.DataFrame(akd))
+                        akd_df = pd.DataFrame(akd)
+                        st.dataframe(akd_df)
                         buy = sum([x['lot'] for x in akd if x['side'] == 'buy'][:3])
                         sell = sum([x['lot'] for x in akd if x['side'] == 'sell'][:3])
-                        st.success(f"{'✅ GÜÇLÜ TOPLAMA' if buy > sell else '⚠️ MAL BOŞALTILIYOR'}")
+                        st.success(f"{'✅ GÜÇLÜ TOPLAMA' if buy > sell else '⚠️ SATIŞ BASKISI'}")
                     else: st.info("Takas verisi bekleniyor...")
 
-            # --- TAB 3: TEMEL ANALİZ & KAP ---
+            # --- TAB 3: TEMEL ANALİZ & KAP HABER SEÇİMİ (HATA GİDERİLEN NOKTA) ---
             with tab3:
                 st.subheader("📰 KAP Haber Listesi")
-                if news:
+                if news: # image_2fd6b7 hatasını önleyen kontrol
                     secilen = st.selectbox("Açıklanacak Haberi Seçin:", [n['title'] for n in news])
-                    st.markdown(f'<div class="master-card"><b>Müfettiş Yorumu:</b> {secilen} haberi şirket için matematiksel bir etki yaratıyor.</div>', unsafe_allow_html=True)
+                    st.markdown(f'<div class="master-card"><b>Yorum:</b> {secilen[:100]}... haberi temel takvim bazlı analiz ediliyor.</div>', unsafe_allow_html=True)
+                else:
+                    st.warning("Bu hisse için güncel KAP haberi bulunamadı.")
                 
-                st.subheader("📊 Bilanço & Temel Analiz")
+                st.subheader("📊 Bilanço Müfettiş Raporu")
                 st.markdown(f"""<div class="master-card">
                     <b>F/K:</b> {fin['fk']:.2f} | <b>PD/DD:</b> {fin['pddd']:.2f} | <b>Özsermaye Kârı:</b> %{fin['oz_kar']:.2f} | <b>Cari Oran:</b> {fin['cari']:.2f}
                 </div>""", unsafe_allow_html=True)
@@ -231,15 +243,15 @@ def main():
 
             # --- TAB 4: SİMÜLASYON (TARİHLİ) ---
             with tab4:
-                days = st.slider("Simülasyon Gün Sayısı:", 7, 90, 30)
-                st.subheader(f"🎲 {days} Günlük Tarihli Gelecek Simülasyonu")
-                returns = np.random.normal(0.001, 0.02, days)
+                days_sim = st.slider("Simülasyon Gün Sayısı:", 7, 60, 30)
+                st.subheader(f"🎲 {days_sim} Günlük Tarihli Gelecek Simülasyonu")
+                returns = np.random.normal(0.001, 0.02, days_sim)
                 sim_path = live_p * (1 + returns).cumprod()
-                dates = [datetime.now() + timedelta(days=i) for i in range(days)]
-                fig_sim = go.Figure(go.Scatter(x=dates, y=sim_path, name="Muhtemel Yol", line=dict(color='#00D4FF')))
+                dates = [datetime.now() + timedelta(days=i) for i in range(days_sim)]
+                fig_sim = go.Figure(go.Scatter(x=dates, y=sim_path, name="Olası Yol", line=dict(color='#00D4FF')))
                 fig_sim.update_layout(template="plotly_dark", height=400, xaxis_title="Tahmini Tarih")
                 st.plotly_chart(fig_sim, use_container_width=True)
 
-    st.markdown('<div class="yasal-uyari">⚠️ YATIRIM TAVSİYESİ DEĞİLDİR. (Master Robot Ultimate V12)</div>', unsafe_allow_html=True)
+    st.markdown('<div class="yasal-uyari">⚠️ YATIRIM TAVSİYESİ DEĞİLDİR. (Master Robot V12 Pro Max Ultimate)</div>', unsafe_allow_html=True)
 
 if __name__ == "__main__": main()
