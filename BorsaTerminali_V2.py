@@ -15,8 +15,9 @@ from datetime import datetime, timedelta
 # =================================================================
 # 1. TASARIM VE AKILLI OTURUM YÖNETİMİ
 # =================================================================
-st.set_page_config(page_title="Master Robot Ultimate", layout="wide", page_icon="🛡️")
+st.set_page_config(page_title="Master Robot Ultimate V12", layout="wide", page_icon="🛡️")
 
+# Otomatik Veri Hafızası (Session State)
 if 'live_prices' not in st.session_state: st.session_state.live_prices = {}
 if 'live_depth' not in st.session_state: st.session_state.live_depth = {}
 if 'live_akd' not in st.session_state: st.session_state.live_akd = {}
@@ -35,42 +36,48 @@ st.markdown("""
         .coach-box {
             background: linear-gradient(135deg, #1e1b4b 0%, #312e81 100%);
             border: 2px solid #6366f1; padding: 25px; border-radius: 15px;
-            color: #e0e7ff; margin-bottom: 30px;
+            color: #e0e7ff; margin-bottom: 30px; box-shadow: 0 10px 25px rgba(0,0,0,0.3);
         }
-        .light { height: 16px; width: 16px; border-radius: 50%; display: inline-block; border: 1px solid white; margin-right: 8px; }
-        .green { background-color: #00ff00; box-shadow: 0 0 10px #00ff00; }
-        .yellow { background-color: #ffff00; box-shadow: 0 0 10px #ffff00; }
-        .red { background-color: #ff0000; box-shadow: 0 0 10px #ff0000; }
+        .light { height: 18px; width: 18px; border-radius: 50%; display: inline-block; border: 1px solid white; margin-right: 10px; }
+        .green { background-color: #00ff00; box-shadow: 0 0 15px #00ff00; }
+        .yellow { background-color: #ffff00; box-shadow: 0 0 15px #ffff00; }
+        .red { background-color: #ff0000; box-shadow: 0 0 15px #ff0000; }
         .yasal-uyari {
             position: fixed; left: 0; bottom: 0; width: 100%;
             background-color: #111418; color: #ff4b4b; text-align: center;
-            padding: 8px; font-size: 0.8rem; font-weight: bold; border-top: 2px solid #3b82f6; z-index: 999;
+            padding: 10px; font-size: 0.9rem; font-weight: bold; border-top: 2px solid #3b82f6; z-index: 999;
         }
     </style>
 """, unsafe_allow_html=True)
 
 # =================================================================
-# 2. GÜVENLİK VE CANLI VERİ MOTORU
+# 2. GÜVENLİK, KAYIT VE OTOMATİK GİRİŞ SİSTEMİ
 # =================================================================
 def check_password():
     if st.session_state.authenticated: return True
     st.title("🛡️ Master Robot Güvenlik Paneli")
-    tab_l, tab_r = st.tabs(["Giriş Yap", "Yeni Şifre Belirle"])
-    with tab_r:
-        new_pwd = st.text_input("Kasa Şifrenizi Belirleyin:", type="password")
-        if st.button("Şifreyi Kaydet"):
-            st.session_state.master_password = new_pwd
-            st.session_state.authenticated = True
-            st.rerun()
-    with tab_l:
-        login_pwd = st.text_input("Şifreniz:", type="password")
-        if st.button("Giriş Yap"):
+    tab_login, tab_register = st.tabs(["Giriş Yap", "Yeni Şifre Belirle"])
+    with tab_register:
+        new_pwd = st.text_input("Yeni Kasa Şifrenizi Belirleyin:", type="password", key="reg_pwd")
+        confirm_pwd = st.text_input("Şifreyi Onaylayın:", type="password", key="conf_pwd")
+        if st.button("Şifreyi Kaydet ve Sistemi Aç"):
+            if new_pwd == confirm_pwd and len(new_pwd) > 0:
+                st.session_state.master_password = new_pwd
+                st.session_state.authenticated = True
+                st.rerun()
+            else: st.error("Şifreler uyuşmuyor veya boş.")
+    with tab_login:
+        login_pwd = st.text_input("Kasa Şifrenizi Girin:", type="password", key="log_pwd")
+        if st.button("Robotu Başlat"):
             if "master_password" in st.session_state and login_pwd == st.session_state.master_password:
                 st.session_state.authenticated = True
                 st.rerun()
-            else: st.error("Hatalı Şifre!")
+            else: st.error("Hatalı şifre veya kayıtlı şifre bulunamadı.")
     return False
 
+# =================================================================
+# 3. CANLI VERİ MOTORU (KESİNTİSİZ WS DİNLEYİCİ)
+# =================================================================
 def ws_engine(url):
     async def listen():
         while True:
@@ -98,11 +105,11 @@ def start_threads(url):
         st.session_state.ws_thread_active = True
 
 # =================================================================
-# 3. ANALİZ VE KOÇLUK SINIFI
+# 4. ANALİZ VE KOÇLUK SINIFI (7 MOTOR ENTEGRASYONU)
 # =================================================================
 class MasterSystemUltimate:
     def __init__(self):
-        self.conn = sqlite3.connect("master_ultimate_final.db", check_same_thread=False)
+        self.conn = sqlite3.connect("master_ultimate_v12_pro.db", check_same_thread=False)
 
     def get_space(self, pwd):
         table = f"u_{"".join(filter(str.isalnum, pwd))}"
@@ -117,7 +124,7 @@ class MasterSystemUltimate:
             df = t.history(period="1y")
             if df.empty: return None, None, [], None, None
             
-            # 10 TEKNİK İNDİKATÖR (Full Liste)
+            # MOTOR 1: 10 TEKNİK İNDİKATÖR
             df['SMA20'] = df['Close'].rolling(20).mean()
             df['SMA50'] = df['Close'].rolling(50).mean()
             df['SMA200'] = df['Close'].rolling(200).mean()
@@ -133,7 +140,7 @@ class MasterSystemUltimate:
             df['Momentum'] = df['Close'].diff(10)
             df['EMA9'] = df['Close'].ewm(span=9).mean()
             df['Vol_Avg'] = df['Volume'].rolling(20).mean()
-
+            
             info = t.info
             fin = {
                 "fk": info.get("trailingPE", 0), "pddd": info.get("priceToBook", 0),
@@ -145,7 +152,7 @@ class MasterSystemUltimate:
         except: return None, None, [], None, None
 
 # =================================================================
-# 4. ANA TERMİNAL
+# 5. ANA TERMİNAL VE KOÇLUK MOTORU
 # =================================================================
 def main():
     if not check_password(): return
@@ -155,7 +162,7 @@ def main():
     table = sys.get_space(st.session_state.master_password)
 
     with st.sidebar:
-        st.title("🛡️ Kontrol Paneli")
+        st.title("🛡️ Master Kontrol")
         canli_mod = st.toggle("🛰️ Canlı Veriyi Aktif Et", value=False)
         if canli_mod: start_threads(WS_LINK)
         st.divider()
@@ -176,28 +183,30 @@ def main():
             live_p = st.session_state.live_prices.get(active, fin['fiyat']) if canli_mod else fin['fiyat']
             row = p_df[p_df['symbol'] == active].iloc[0]
 
-            # --- MOTOR: AI FİNANS KOÇU (TAVSİYE MERKEZİ) ---
+            # --- MOTOR: AI FİNANS KOÇU (STRATEJİ MERKEZİ) ---
+            st.subheader("🤖 Robot Finans Koçu Karar Raporu")
             rsi_v = df['RSI'].iloc[-1]
             akd_v = st.session_state.live_akd.get(active, [])
             trend_ok = live_p > df['SMA50'].iloc[-1]
-            tavsiye = "Pozisyonu KORUMAK mantıklı."
-            if rsi_v < 40 and trend_ok: tavsiye = "**ALIM** için uygun matematiksel zemin var."
-            elif rsi_v > 70: tavsiye = "Aşırı alım! **KÂR SATIŞI** düşünülmeli."
-            elif live_p < row['stop'] and row['stop'] > 0: tavsiye = "⚠️ **STOP:** Disiplin gereği küçülmelisiniz."
+            
+            tavsiye = "Hocam, matematiksel veriler nötr. Mevcut pozisyonu KORUMAK en güvenli liman."
+            if rsi_v < 40 and trend_ok: tavsiye = "Hocam, hisse toplama bölgesinde ve trend üzerinde. Burası kademeli **ALIM** için çok uygun."
+            elif rsi_v > 75: tavsiye = "⚠️ DİKKAT! RSI aşırı alımda. Buradan alım riskli, **KÂR SATIŞI** için fırsat kollayın."
+            elif live_p < row['stop'] and row['stop'] > 0: tavsiye = "🚨 **ACİL:** Stop seviyesinin altındasınız. Matematik disiplini gereği küçülmelisiniz."
 
             st.markdown(f"""<div class="coach-box">
-                <h3>🛡️ Robot Finans Koçu Strateji Notu ({active})</h3>
-                <p><b>Durum:</b> Hisse {live_p:.2f} TL. {'Büyük kurumlar mal topluyor.' if akd_v else 'Veri bekleniyor.'}</p>
-                <p><b>Koçluk Tavsiyesi:</b> {tavsiye} Hedef: {row['target']} TL, Stop: {row['stop']} TL.</p>
+                <h3>🛡️ Hasan Hoca Özel Strateji Notu ({active})</h3>
+                <p><b>Durum:</b> Fiyat {live_p:.2f} TL. {'Büyük kurumlar mal topluyor (AKD Pozitif).' if akd_v else 'Takas verisi bekleniyor.'}</p>
+                <p><b>Koçluk Tavsiyesi:</b> {tavsiye}</p>
+                <p><b>Hedef/Stop:</b> {row['target']} TL / {row['stop']} TL. Bu sınırlara sadık kalınmalıdır.</p>
             </div>""", unsafe_allow_html=True)
 
-            # SEKMELİ ANALİZLER (Demirlediğimiz Yapı)
-            tab1, tab2, tab3, tab4 = st.tabs(["📉 Teknik & Trend", "🛒 Canlı Derinlik & AKD", "📋 Temel & KAP", "🎲 Simülasyon"])
+            # SEKMELİ FULL ANALİZ
+            tab1, tab2, tab3, tab4 = st.tabs(["📉 Teknik & Trend", "🛒 Derinlik & AKD", "📋 Temel & KAP", "🎲 Simülasyon"])
 
             with tab1:
-                # 10 IŞIKLI TEKNİK
                 st.subheader("🚥 10 Teknik Onay Müfettişi")
-                L = {"RSI": ("green" if 35<rsi_v<65 else "yellow", rsi_v), "SMA50": ("green" if trend_ok else "red", 0), "MACD": ("green" if df['MACD'].iloc[-1]>df['Signal'].iloc[-1] else "red", 0), "Vol": ("green" if df['Volume'].iloc[-1]>df['Vol_Avg'].iloc[-1] else "yellow", 0)}
+                L = {"RSI": ("green" if 35<rsi_v<65 else "yellow", rsi_v), "SMA 50": ("green" if trend_ok else "red", 0), "MACD": ("green" if df['MACD'].iloc[-1]>df['Signal'].iloc[-1] else "red", 0), "Vol": ("green" if df['Volume'].iloc[-1]>df['Vol_Avg'].iloc[-1] else "yellow", 0)}
                 cols = st.columns(4)
                 for i, (k, v) in enumerate(L.items()):
                     with cols[i]: st.markdown(f'<div class="master-card"><span class="light {v[0]}"></span><b>{k}</b></div>', unsafe_allow_html=True)
@@ -208,7 +217,8 @@ def main():
 
                 fig = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.7, 0.3])
                 fig.add_trace(go.Candlestick(x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'], name="Mum"), row=1, col=1)
-                if st.session_state.draw_trend is not None: fig.add_trace(go.Scatter(x=df.index[-60:], y=st.session_state.draw_trend, name="Trend", line=dict(color='yellow', dash='dot')), row=1, col=1)
+                if st.session_state.draw_trend is not None:
+                    fig.add_trace(go.Scatter(x=df.index[-60:], y=st.session_state.draw_trend, name="Trend", line=dict(color='yellow', dash='dot')), row=1, col=1)
                 fig.add_trace(go.Scatter(x=df.index, y=df['RSI'], name="RSI", line=dict(color='magenta')), row=2, col=1)
                 fig.update_layout(template="plotly_dark", xaxis_rangeslider_visible=False, height=600)
                 st.plotly_chart(fig, use_container_width=True)
@@ -216,10 +226,12 @@ def main():
             with tab2:
                 c_d, c_a = st.columns(2)
                 with c_d:
+                    st.subheader("🛒 Derinlik")
                     depth = st.session_state.live_depth.get(active, [])
                     if depth: st.table(pd.DataFrame(depth))
-                    else: st.info("Derinlik için botta ekranı açın.")
+                    else: st.info("Derinlik bekleniyor... Botta ekranı açın.")
                 with c_a:
+                    st.subheader("🤝 AKD Analizi")
                     akd = st.session_state.live_akd.get(active, [])
                     if akd: st.dataframe(pd.DataFrame(akd))
                     else: st.info("Takas bekleniyor...")
@@ -227,20 +239,19 @@ def main():
             with tab3:
                 if news:
                     secilen = st.selectbox("Analiz Edilecek KAP Haberi:", [n['title'] for n in news])
-                    st.info(f"Müfettiş Yorumu: {secilen[:100]}... matematiksel olarak analiz ediliyor.")
-                st.subheader("📊 Bilanço & Temel Veriler")
+                    st.info(f"Haber Analizi: {secilen[:120]}...")
+                st.subheader("📊 Bilanço Raporu")
                 st.markdown(f'<div class="master-card">F/K: {fin["fk"]:.2f} | PD/DD: {fin["pddd"]:.2f} | Özsermaye Kârı: %{fin["oz_kar"]:.2f}</div>', unsafe_allow_html=True)
                 if balance is not None: st.dataframe(balance.iloc[:10, :4], use_container_width=True)
 
             with tab4:
-                days = st.slider("Gelecek Gün Sayısı:", 7, 90, 30)
-                returns = np.random.normal(0.001, 0.02, days)
-                path = live_p * (1 + returns).cumprod()
-                dates = [datetime.now() + timedelta(days=i) for i in range(days)]
-                fig_sim = go.Figure(go.Scatter(x=dates, y=path, line=dict(color='#00D4FF')))
-                fig_sim.update_layout(template="plotly_dark", xaxis_title="Tahmini Tarih", height=450)
-                st.plotly_chart(fig_sim, use_container_width=True)
+                # MOTOR 7: MONTE CARLO SİMLÜASYONU (TARİHLİ)
+                days_sim = st.slider("Tahmin Penceresi (Gün):", 7, 90, 30)
+                returns = np.random.normal(0.001, 0.02, days_sim)
+                sim_path = live_p * (1 + returns).cumprod()
+                dates = [datetime.now() + timedelta(days=i) for i in range(days_sim)]
+                st.plotly_chart(go.Figure(go.Scatter(x=dates, y=sim_path, line=dict(color='#00D4FF'))), use_container_width=True)
 
-    st.markdown('<div class="yasal-uyari">⚠️ YATIRIM TAVSİYESİ DEĞİLDİR. (Master Robot Ultimate V12)</div>', unsafe_allow_html=True)
+    st.markdown('<div class="yasal-uyari">⚠️ YATIRIM TAVSİYESİ DEĞİLDİR. (Master Robot V12 Pro Max Ultimate)</div>', unsafe_allow_html=True)
 
 if __name__ == "__main__": main()
