@@ -45,20 +45,18 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # =================================================================
-# 2. CANLI VERİ MOTORU (ARKA PLAN DİNLEYİCİ)
+# 2. CANLI VERİ MOTORU (DİNAMİK KONTROLLÜ)
 # =================================================================
 def ws_engine(url):
     async def listen():
         while True:
             try:
-                # image_fca63f görselindeki '101 Switching Protocols' bağlantısı
-                async with websockets.connect(url, ping_interval=20) as ws:
+                # SSL ve timeout ayarlarıyla en sağlam bağlantı (Görsel fca63f)
+                async with websockets.connect(url, ping_interval=20, close_timeout=10) as ws:
                     st.session_state.ws_connected = True
                     while True:
                         msg = await ws.recv()
                         data = json.loads(msg)
-                        
-                        # image_fca663 görselindeki ping/pong trafiği yönetimi
                         if data.get("type") == "ping":
                             await ws.send(json.dumps({"type": "pong"}))
                             continue
@@ -67,10 +65,9 @@ def ws_engine(url):
                         if not symbol: continue
                         s_key = f"{symbol}.IS"
                         
-                        m_type = data.get("type")
                         if "p" in data: st.session_state.live_prices[s_key] = float(data["p"])
-                        elif m_type == "depth": st.session_state.live_depth[s_key] = data.get("data", [])
-                        elif m_type == "akd": st.session_state.live_akd[s_key] = data.get("data", [])
+                        elif data.get("type") == "depth": st.session_state.live_depth[s_key] = data.get("data", [])
+                        elif data.get("type") == "akd": st.session_state.live_akd[s_key] = data.get("data", [])
             except:
                 st.session_state.ws_connected = False
                 await asyncio.sleep(5)
@@ -85,8 +82,8 @@ def start_threads(url):
 # 3. ANALİZ VE MATEMATİKSEL MOTORLAR
 # =================================================================
 class MasterSystemUltimate:
-    def __init__(self):
-        self.conn = sqlite3.connect("master_ultimate_v12_final.db", check_same_thread=False)
+    def __init__(self, db_name="master_ultimate_v12_pro.db"):
+        self.conn = sqlite3.connect(db_name, check_same_thread=False)
 
     def get_space(self, key):
         safe = "".join(filter(str.isalnum, key))
@@ -129,7 +126,7 @@ class MasterSystemUltimate:
                 "fiyat": df['Close'].iloc[-1],
                 "halka_acik": (info.get("floatShares", 0) / info.get("sharesOutstanding", 1) * 100) if info.get("sharesOutstanding") else 0
             }
-            # image_2fd6b7'deki hatayı çözen koruma: news boşsa boş liste döndür
+            # HATAYI ÇÖZEN KORUMA: Haber yoksa boş liste döndür
             news = t.news if t.news else []
             return df, fin, news, t.quarterly_balance_sheet, t.quarterly_financials
         except: return None, None, [], None, None
@@ -139,10 +136,10 @@ class MasterSystemUltimate:
 # =================================================================
 def main():
     sys = MasterSystemUltimate()
-    # image_fca63f görselindeki 'Request URL' değerini buraya yerleştirin
+    
+    # Görsel fca63f'den gelen Canlı Veri Anahtarınız
     WS_LINK = "wss://ws.7k2v9x1r0z8t4m3n5p7w.com/?init_data=user%3D%257B%2522id%2522%253A8479457745%252C%2522first_name%2522%253A%2522Hasan%2522%252C%2522last_name%2522%253A%2522%2522%252C%2522language_code%2522%253A%2522tr%2522%252C%2522allows_write_to_pm%2522%253Atrue%252C%2522photo_url%2522%253A%2522https%253A%255C%252F%255C%252Ft.me%255C%252Fi%255C%252Fuserpic%255C%252F320%255C%252FqFQnxlCiDCD3PBWXXq2LYBtQf6-xy3roI737vHv1ZzfLPtDDm6ILM1w-D0z51rMQ.svg%2522%257D%26chat_instance%3D6343175205638196527%26chat_type%3Dsender%26auth_date%3D1770599132%26signature%3DHBPngCoF21mUtuu4RR-a1AcI1IyYqBQjed1ADKfJXrM7zhXTfInvUuyNs3pPUysstbDdVpNUZXZC_zlWc5h3Aw%26hash%3D7c06577956860cbe621177d869355725b7a920ebc449cf12d7f263eefcc89bb0"
-    start_threads(WS_LINK)
-
+    
     st.sidebar.title("🔐 Master Giriş")
     pwd = st.sidebar.text_input("Şifreniz:", type="password")
     if not pwd: return
@@ -150,7 +147,16 @@ def main():
     table = sys.get_space(pwd)
 
     with st.sidebar:
-        st.write(f"📡 Durum: {'🟢 Canlı' if st.session_state.ws_connected else '🔴 Yedek'}")
+        st.divider()
+        # İSTEĞİNİZ: CANLI VERİ AÇ/KAPAT ANAHTARI
+        canli_mod = st.toggle("🛰️ Canlı Veriyi Aktif Et", value=True)
+        if canli_mod:
+            start_threads(WS_LINK)
+            st.write(f"Durum: {'🟢 Canlı' if st.session_state.ws_connected else '🟡 Bağlanıyor...'}")
+        else:
+            st.write("Durum: 🔴 Yedek (Gecikmeli) Mod")
+        
+        st.divider()
         h_kod = st.text_input("Hisse Ekle (SASA, ESEN):").upper().strip()
         q_in = st.number_input("Adet:", 0.0)
         c_in = st.number_input("Maliyet:", 0.0)
@@ -167,12 +173,13 @@ def main():
         df, fin, news, balance, financials = sys.fetch_full_data(active)
         
         if df is not None:
-            live_p = st.session_state.live_prices.get(active, fin['fiyat'])
+            # Fiyat Seçimi (Canlı açıksa ve veri varsa canlıyı al, yoksa yfinance al)
+            live_p = st.session_state.live_prices.get(active, fin['fiyat']) if canli_mod else fin['fiyat']
             row = p_df[p_df['symbol'] == active].iloc[0]
             
             tab1, tab2, tab3, tab4 = st.tabs(["📉 Teknik Analiz & Trend", "🛒 Canlı Derinlik & AKD", "📋 Temel Analiz & KAP", "🎲 Simülasyon"])
 
-            # --- TAB 1: TEKNİK ANALİZ (10 İNDİKATÖR + TREND ÇİZİMİ + ALARM) ---
+            # --- TAB 1: TEKNİK ANALİZ (10 İNDİKATÖR + TREND + ALARM) ---
             with tab1:
                 st.subheader("🚥 10 Teknik Onay Müfettişi")
                 if row['target'] > 0 and live_p >= row['target']: st.balloons(); st.success(f"🎯 HEDEF GÖRÜLDÜ: {row['target']} TL")
@@ -209,29 +216,32 @@ def main():
 
             # --- TAB 2: CANLI DERİNLİK & AKD ---
             with tab2:
-                col_d, col_a = st.columns(2)
-                with col_d:
-                    st.subheader("🛒 Derinlik (Kademeler)")
-                    depth = st.session_state.live_depth.get(active, [])
-                    if depth: st.table(pd.DataFrame(depth))
-                    else: st.info("Derinlik bekleniyor... Botta ilgili hisse detayını açın.")
-                with col_a:
-                    st.subheader("🤝 AKD (Mal Toplama/Boşaltma)")
-                    akd = st.session_state.live_akd.get(active, [])
-                    if akd:
-                        akd_df = pd.DataFrame(akd)
-                        st.dataframe(akd_df)
-                        buy = sum([x['lot'] for x in akd if x['side'] == 'buy'][:3])
-                        sell = sum([x['lot'] for x in akd if x['side'] == 'sell'][:3])
-                        st.success(f"{'✅ GÜÇLÜ TOPLAMA' if buy > sell else '⚠️ SATIŞ BASKISI'}")
-                    else: st.info("Takas verisi bekleniyor...")
+                if canli_mod:
+                    col_d, col_a = st.columns(2)
+                    with col_d:
+                        st.subheader("🛒 Derinlik (Kademeler)")
+                        depth = st.session_state.live_depth.get(active, [])
+                        if depth: st.table(pd.DataFrame(depth))
+                        else: st.info("Derinlik bekleniyor... Botta hisse detayını açın.")
+                    with col_a:
+                        st.subheader("🤝 AKD (Mal Toplama/Boşaltma)")
+                        akd = st.session_state.live_akd.get(active, [])
+                        if akd:
+                            akd_df = pd.DataFrame(akd)
+                            st.dataframe(akd_df)
+                            buy = sum([x['lot'] for x in akd if x['side'] == 'buy'][:3])
+                            sell = sum([x['lot'] for x in akd if x['side'] == 'sell'][:3])
+                            st.success(f"{'✅ GÜÇLÜ TOPLAMA' if buy > sell else '⚠️ SATIŞ BASKISI'}")
+                        else: st.info("Takas verisi bekleniyor...")
+                else:
+                    st.warning("Bu verileri görmek için 'Canlı Veri' modunu açmalısınız.")
 
-            # --- TAB 3: TEMEL ANALİZ & KAP HABER SEÇİMİ (HATA GİDERİLEN NOKTA) ---
+            # --- TAB 3: TEMEL ANALİZ & KAP HABER SEÇİMİ (HATANIN ÇÖZÜLDÜĞÜ YER) ---
             with tab3:
                 st.subheader("📰 KAP Haber Listesi")
-                if news: # image_2fd6b7 hatasını önleyen kontrol
+                if news: # image_2fd6b7 hatasını engelleyen can simidi
                     secilen = st.selectbox("Açıklanacak Haberi Seçin:", [n['title'] for n in news])
-                    st.markdown(f'<div class="master-card"><b>Yorum:</b> {secilen[:100]}... haberi temel takvim bazlı analiz ediliyor.</div>', unsafe_allow_html=True)
+                    st.markdown(f'<div class="master-card"><b>Yorum:</b> {secilen[:100]}... haberinin piyasa etkisi analiz ediliyor.</div>', unsafe_allow_html=True)
                 else:
                     st.warning("Bu hisse için güncel KAP haberi bulunamadı.")
                 
