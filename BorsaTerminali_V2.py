@@ -6,32 +6,53 @@ from plotly.subplots import make_subplots
 import yfinance as yf
 import sqlite3
 from sklearn.linear_model import LinearRegression
-from datetime import datetime, timedelta
 
 # =================================================================
-# 1. TASARIM VE GÜVENLİK SİSTEMİ (DEMİRLENMİŞ GİRİŞ)
+# 1. TASARIM VE MOBİL (PWA) KONFİGÜRASYONU
 # =================================================================
-st.set_page_config(page_title="Master Finans Koçu V12", layout="wide", page_icon="🛡️")
-
-if 'authenticated' not in st.session_state: st.session_state.authenticated = False
-if 'draw_trend' not in st.session_state: st.session_state.draw_trend = None
+st.set_page_config(page_title="Borsa Robotu", layout="wide", page_icon="📈")
 
 st.markdown("""
+    <head>
+        <meta name="apple-mobile-web-app-title" content="Borsa Robotu">
+        <meta name="application-name" content="Borsa Robotu">
+        <meta name="apple-mobile-web-app-capable" content="yes">
+    </head>
     <style>
         .stApp { background-color: #0E1117; }
-        .coach-box {
-            background: linear-gradient(135deg, #1e1b4b 0%, #312e81 100%);
-            border: 2px solid #6366f1; padding: 25px; border-radius: 15px;
-            color: #e0e7ff; margin-bottom: 30px; box-shadow: 0 10px 25px rgba(0,0,0,0.3);
+        section[data-testid="stSidebar"] { background-color: #0a0c10 !important; border-right: 3px solid #00D4FF; }
+        
+        /* BEYAZ VE NET SIDEBAR */
+        section[data-testid="stSidebar"] .stMarkdown p, 
+        section[data-testid="stSidebar"] label,
+        section[data-testid="stSidebar"] .stSubheader { 
+            color: #FFFFFF !important; font-weight: 900 !important; font-size: 1.15rem !important;
+            text-shadow: 2px 2px 4px #000000;
         }
+
+        /* ANALİZ KARTLARI - BEYAZ METİN GARANTİSİ */
         .master-card {
             background: #1e293b; padding: 20px; border-radius: 12px; 
             border-left: 8px solid #00D4FF; margin-bottom: 15px;
+            box-shadow: 0px 4px 15px rgba(0,0,0,0.5);
         }
-        .light { height: 16px; width: 16px; border-radius: 50%; display: inline-block; border: 1px solid white; margin-right: 8px; }
-        .green { background-color: #00ff00; box-shadow: 0 0 10px #00ff00; }
-        .yellow { background-color: #ffff00; box-shadow: 0 0 10px #ffff00; }
-        .red { background-color: #ff0000; box-shadow: 0 0 10px #ff0000; }
+        .master-card h3, .master-card h2, .master-card h1, .master-card p, 
+        .master-card b, .master-card span, .master-card li {
+            color: #FFFFFF !important; font-weight: 800 !important;
+        }
+        
+        /* TRAFİK IŞIKLARI */
+        .light { height: 18px; width: 18px; border-radius: 50%; display: inline-block; border: 1px solid white; }
+        .green { background-color: #00ff00; box-shadow: 0 0 12px #00ff00; }
+        .yellow { background-color: #ffff00; box-shadow: 0 0 12px #ffff00; }
+        .red { background-color: #ff0000; box-shadow: 0 0 12px #ff0000; }
+
+        .stButton>button {
+            background-color: #00D4FF !important; color: #000000 !important;
+            font-weight: 900 !important; border-radius: 10px !important; 
+            height: 60px !important; width: 100% !important; border: 3px solid white;
+        }
+        
         .yasal-uyari {
             position: fixed; left: 0; bottom: 0; width: 100%;
             background-color: #111418; color: #ff4b4b; text-align: center;
@@ -41,49 +62,27 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # =================================================================
-# 2. GÜVENLİK VE VERİ TABANI MOTORU
+# 2. VERİ VE ANALİZ SİSTEMİ
 # =================================================================
-def check_password():
-    if st.session_state.authenticated: return True
-    st.title("🛡️ Master Robot Güvenlik Paneli")
-    tab_login, tab_register = st.tabs(["Giriş Yap", "Yeni Şifre Belirle"])
-    with tab_register:
-        new_pwd = st.text_input("Kasa Şifrenizi Belirleyin:", type="password", key="reg_pwd")
-        if st.button("Şifreyi Kaydet ve Sistemi Kilitle"):
-            if len(new_pwd) > 0:
-                st.session_state.master_password = new_pwd
-                st.session_state.authenticated = True
-                st.rerun()
-            else:
-                st.error("Şifre boş bırakılamaz.")
-    with tab_login:
-        login_pwd = st.text_input("Kasa Şifrenizi Girin:", type="password", key="log_pwd")
-        if st.button("Robotu Başlat"):
-            if "master_password" in st.session_state and login_pwd == st.session_state.master_password:
-                st.session_state.authenticated = True
-                st.rerun()
-            else:
-                st.error("Hatalı şifre!")
-    return False
+class MasterSystemV12Final:
+    def __init__(self, db_name="master_robot_v12_final.db"):
+        self.conn = sqlite3.connect(db_name, check_same_thread=False)
 
-class MasterSystem:
-    def __init__(self):
-        self.conn = sqlite3.connect("master_ultimate_v12_stabil.db", check_same_thread=False)
-
-    def get_space(self, pwd):
-        table = f"u_{"".join(filter(str.isalnum, pwd))}"
+    def get_space(self, key):
+        safe = "".join(filter(str.isalnum, key))
+        table = f"u_{safe}"
         with self.conn:
             self.conn.execute(f"CREATE TABLE IF NOT EXISTS {table} (symbol TEXT PRIMARY KEY, qty REAL, cost REAL, target REAL, stop REAL)")
         return table
 
     @st.cache_data(ttl=300)
-    def fetch_full_data(_self, symbol):
+    def fetch_comprehensive(_self, symbol):
         try:
             t = yf.Ticker(symbol)
             df = t.history(period="1y")
-            if df.empty: return None, None, [], None, None
+            if df.empty: return None, None, None, None
             
-            # MOTOR 1: 10 TEKNİK İNDİKATÖR (V12 FULL LİSTE)
+            # 10 Teknik Veri
             df['SMA20'] = df['Close'].rolling(20).mean()
             df['SMA50'] = df['Close'].rolling(50).mean()
             df['SMA200'] = df['Close'].rolling(200).mean()
@@ -91,125 +90,153 @@ class MasterSystem:
             up = delta.where(delta > 0, 0).rolling(14).mean()
             down = -delta.where(delta < 0, 0).rolling(14).mean()
             df['RSI'] = 100 - (100 / (1 + (up / (down + 1e-9))))
-            e1, e2 = df['Close'].ewm(span=12).mean(), df['Close'].ewm(span=26).mean()
+            e1 = df['Close'].ewm(span=12, adjust=False).mean()
+            e2 = df['Close'].ewm(span=26, adjust=False).mean()
             df['MACD'] = e1 - e2
-            df['Signal'] = df['MACD'].ewm(span=9).mean()
-            df['STD'] = df['Close'].rolling(20).std()
-            df['Upper'], df['Lower'] = df['SMA20']+(df['STD']*2), df['SMA20']-(df['STD']*2)
-            df['Momentum'] = df['Close'].diff(10)
-            df['EMA9'] = df['Close'].ewm(span=9).mean()
-            df['Vol_Avg'] = df['Volume'].rolling(20).mean()
+            df['Signal'] = df['MACD'].ewm(span=9, adjust=False).mean()
             
             info = t.info
+            def v_c(val): return f"{val:.2f}" if isinstance(val, (int, float)) and not np.isnan(val) else "Analiz Ediliyor"
+            
+            # Halka Açıklık Hesaplama (Fix)
+            shares = info.get("sharesOutstanding", 0)
+            float_shares = info.get("floatShares", 0)
+            halka_acik = (float_shares / shares * 100) if shares > 0 and float_shares > 0 else 0
+            
             fin = {
                 "ad": info.get("longName", symbol),
-                "ozet": info.get("longBusinessSummary", "Şirket özeti bulunamadı."),
-                "fk": info.get("trailingPE", 0), "pddd": info.get("priceToBook", 0),
-                "oz_kar": info.get("returnOnEquity", 0) * 100, "cari": info.get("currentRatio", 0),
-                "sektor": info.get("sector", "N/A"), "fiyat": df['Close'].iloc[-1]
+                "cari": info.get("currentRatio", 0),
+                "oz_kar": info.get("returnOnEquity", 0) * 100,
+                "fk": v_c(info.get("trailingPE")),
+                "pddd": v_c(info.get("priceToBook")),
+                "eps": v_c(info.get("trailingEps")),
+                "fiyat": df['Close'].iloc[-1],
+                "halka_acik": halka_acik
             }
-            # KRİTİK HATA ÖNLEYİCİ
-            news = t.news if t.news else []
-            return df, fin, news, t.quarterly_balance_sheet, t.quarterly_financials
-        except Exception: return None, None, [], None, None
+            holders = t.major_holders if hasattr(t, 'major_holders') else None
+            return df, fin, t.news, holders
+        except: return None, None, None, None
 
 # =================================================================
-# 3. ANA TERMİNAL VE KARAR MOTORLARI
+# 3. ANA MOTOR
 # =================================================================
 def main():
-    if not check_password(): return
-    sys = MasterSystem()
-    table = sys.get_space(st.session_state.master_password)
+    sys = MasterSystemV12Final()
+    st.sidebar.title("🔑 Borsa Kasası")
+    key = st.sidebar.text_input("Giriş Şifresi:", type="password")
+    
+    if not key:
+        st.info("👋 Hoş geldin öğretmenim! Şifreni girerek 10 Işıklı robotu uyandırabilirsin.")
+        return
+
+    table = sys.get_space(key)
 
     with st.sidebar:
-        st.title("🛡️ Master Kontrol")
-        h_kod = st.text_input("Hisse (SASA, ESEN):").upper().strip()
-        q_in = st.number_input("Adet:", 0.0); c_in = st.number_input("Maliyet:", 0.0)
-        t_in = st.number_input("Hedef:", 0.0); s_in = st.number_input("Stop:", 0.0)
-        if st.button("PORTFÖYE KAYDET") and h_kod:
-            sym = h_kod if h_kod.endswith(".IS") else f"{h_kod}.IS"
-            with sys.conn: sys.conn.execute(f"INSERT OR REPLACE INTO {table} VALUES (?,?,?,?,?)", (sym, q_in, c_in, t_in, s_in))
-            st.rerun()
+        st.divider()
+        st.subheader("➕ Hisse Kaydet")
+        s_raw = st.text_input("Kod (esen, thyao):").upper().strip()
+        q_in = st.number_input("Adet", 0.0)
+        c_in = st.number_input("Maliyet", 0.0)
+        t_in = st.number_input("Hedef Fiyat", 0.0)
+        st_in = st.number_input("Stop Fiyat", 0.0)
+        if st.button("KAYDET VE ANALİZ ET"):
+            if s_raw:
+                symbol = s_raw if s_raw.endswith(".IS") else f"{s_raw}.IS"
+                with sys.conn:
+                    sys.conn.execute(f"INSERT OR REPLACE INTO {table} VALUES (?,?,?,?,?)", (symbol, q_in, c_in, t_in, st_in))
+                st.rerun()
 
     p_df = pd.read_sql_query(f"SELECT * FROM {table}", sys.conn)
     if not p_df.empty:
-        active = st.selectbox("İncele:", p_df['symbol'].tolist())
-        df, fin, news, balance, financials = sys.fetch_full_data(active)
+        st.title("🛡️ Borsa Robotu Master V12 Ultimate Pro")
+        active = st.selectbox("İncelemek İstediğiniz Hisseni Seç:", ["Analiz Bekleniyor..."] + p_df['symbol'].tolist())
         
-        if df is not None:
-            price = fin['fiyat']
-            row = p_df[p_df['symbol'] == active].iloc[0]
+        if active != "Analiz Bekleniyor...":
+            df, fin, news, holders = sys.fetch_comprehensive(active)
+            if df is not None:
+                # --- 1. HABERLER VE KAP ---
+                st.subheader(f"📰 {active} Haber Akışı ve KAP")
+                if news:
+                    n_cols = st.columns(3)
+                    for i, n in enumerate(news[:3]):
+                        with n_cols[i]:
+                            st.markdown(f"""<div class="master-card"><a href="{n['link']}" target="_blank" style="text-decoration:none; color:#00D4FF; font-weight:bold;">{n['title'][:55]}...</a><br><small style="color:white;">Müfettiş: Gelişme takip ediliyor.</small></div>""", unsafe_allow_html=True)
 
-            # --- MOTOR 1: AI FİNANS KOÇU (STRATEJİ MERKEZİ) ---
-            st.header(f"🏢 {fin['ad']}")
-            rsi_v = df['RSI'].iloc[-1]
-            trend_ok = price > df['SMA50'].iloc[-1]
-            
-            tavsiye = "Dengeli seyir, disiplinli takip."
-            if rsi_v < 40 and trend_ok: tavsiye = "Hisse teknik olarak toplama bölgesinde. **ALIM** fırsatı olabilir."
-            elif rsi_v > 75: tavsiye = "Aşırı alım yorgunluğu! **KÂR SATIŞI** değerlendirilebilir."
-            elif price < row['stop'] and row['stop'] > 0: tavsiye = "🚨 **STOP:** Zarar kesme seviyesinin altındasınız!"
-
-            st.markdown(f"""<div class="coach-box">
-                <h3>🤖 Robot Finans Koçu Karar Raporu</h3>
-                <p><b>Şirket Durumu:</b> {fin['sektor']} sektöründe faaliyet gösteren şirket, %{fin['oz_kar']:.2f} kârlılıkla çalışıyor. 
-                Cari oranı {fin['cari']:.2f} seviyesinde.</p>
-                <p><b>Koçluk Tavsiyesi:</b> {tavsiye}</p>
-                <p><b>Hedef:</b> {row['target']} TL | <b>Stop:</b> {row['stop']} TL</p>
-            </div>""", unsafe_allow_html=True)
-
-            # --- MOTOR 2: AÇILIR LİSTELİ SON 10 KAP ---
-            st.subheader("📰 Son 10 KAP Haberi ve Analizi")
-            if news and len(news) > 0:
-                news_titles = [n.get('title', 'Başlıksız Haber') for n in news[:10]]
-                selected_kap = st.selectbox("Yorumlanacak Haberi Seçin:", news_titles)
-                st.info(f"Müfettiş Notu: Seçilen haber şirket mali yapısı üzerinden analiz ediliyor...")
-            else:
-                st.warning("Bu hisse için haber bulunamadı.")
-
-            # --- SEKMELİ MOTORLAR ---
-            tab1, tab2, tab3 = st.tabs(["📉 Teknik & Trend", "📊 Bilanço & Detay", "🎲 Gelecek Tahmini"])
-            
-            with tab1:
-                # 10 TEKNİK ONAY IŞIĞI
-                st.subheader("🚥 Teknik Analiz Müfettişi")
+                # --- 2. 10 TRAFİK IŞIĞI (DEĞERLERİYLE) ---
+                st.subheader("🚥 10 Teknik Onay Trafik Işıkları")
+                last_p = fin['fiyat']
                 L = {
-                    "RSI": ("green" if 35<rsi_v<65 else "yellow", rsi_v),
-                    "SMA 50": ("green" if trend_ok else "red", 0),
-                    "MACD": ("green" if df['MACD'].iloc[-1]>df['Signal'].iloc[-1] else "red", 0),
-                    "Hacim": ("green" if df['Volume'].iloc[-1]>df['Vol_Avg'].iloc[-1] else "yellow", 0)
+                    "RSI Gücü": ("green" if 35 < df['RSI'].iloc[-1] < 65 else "yellow", df['RSI'].iloc[-1]),
+                    "SMA 50": ("green" if last_p > df['SMA50'].iloc[-1] else "red", df['SMA50'].iloc[-1]),
+                    "SMA 200": ("green" if last_p > df['SMA200'].iloc[-1] else "red", df['SMA200'].iloc[-1]),
+                    "MACD": ("green" if df['MACD'].iloc[-1] > df['Signal'].iloc[-1] else "red", 0),
+                    "Bollinger": ("green" if df['Close'].iloc[-20:].min() < last_p < df['Close'].iloc[-20:].max() else "yellow", 0),
+                    "Momentum": ("green" if last_p > df['Close'].iloc[-10] else "red", last_p - df['Close'].iloc[-10]),
+                    "Cari Oran": ("green" if fin['cari'] > 1.2 else "red", fin['cari']),
+                    "Özsermaye Kar": ("green" if fin['oz_kar'] > 20 else "yellow", fin['oz_kar']),
+                    "Halka Açıklık": ("green" if 0 < fin['halka_acik'] < 60 else "yellow", fin['halka_acik']),
+                    "Kısa Vade": ("green" if last_p > df['SMA20'].iloc[-1] else "red", df['SMA20'].iloc[-1])
                 }
-                cols = st.columns(4)
-                for i, (k, v) in enumerate(L.items()):
-                    with cols[i]: st.markdown(f'<div class="master-card"><span class="light {v[0]}"></span><b>{k}</b></div>', unsafe_allow_html=True)
-                
-                if st.button("📈 TRENDLERİ ÇİZ"):
-                    y_tr = df['Close'].values[-60:]; x_tr = np.arange(len(y_tr)).reshape(-1, 1)
-                    st.session_state.draw_trend = LinearRegression().fit(x_tr, y_tr).predict(x_tr)
+                cols = st.columns(5)
+                for idx, (name, data) in enumerate(L.items()):
+                    color, val = data
+                    with cols[idx % 5]:
+                        val_str = f": {val:.2f}" if val != 0 else ""
+                        st.markdown(f'<div class="master-card"><span class="light {color}"></span> <span style="color:white; font-weight:bold;">{name}{val_str}</span></div>', unsafe_allow_html=True)
 
-                fig = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.7, 0.3])
-                fig.add_trace(go.Candlestick(x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'], name="Mum"), row=1, col=1)
-                if st.session_state.draw_trend is not None:
-                    fig.add_trace(go.Scatter(x=df.index[-60:], y=st.session_state.draw_trend, name="Trend", line=dict(color='yellow', dash='dot')), row=1, col=1)
-                fig.add_trace(go.Scatter(x=df.index, y=df['RSI'], name="RSI", line=dict(color='magenta')), row=2, col=1)
-                fig.update_layout(template="plotly_dark", xaxis_rangeslider_visible=False, height=600)
+                # --- 3. BİLANÇO VE AI ---
+                st.divider()
+                c_muf, c_ai = st.columns(2)
+                with c_muf:
+                    st.markdown(f"""<div class="master-card" style="border-color:#10b981;">
+                        <h3 style="color:#10b981;">🔍 Bilanço Müfettiş Raporu</h3>
+                        <p><b>F/K:</b> {fin['fk']} | <b>PD/DD:</b> {fin['pddd']} | <b>EPS:</b> {fin['eps']}</p>
+                        <p>Analiz: Şirketin Cari Oranı <b>{fin['cari']:.2f}</b> olup borç kapasitesi { 'sağlamdır.' if fin['cari']>1.5 else 'dengelidir.' } 
+                        Özsermaye karlılığı <b>%{fin['oz_kar']:.1f}</b> seviyesinde verimlilik sağlıyor.</p>
+                    </div>""", unsafe_allow_html=True)
+                with c_ai:
+                    y = df['Close'].values[-60:]
+                    model = LinearRegression().fit(np.arange(len(y)).reshape(-1,1), y)
+                    f_val = model.predict([[len(y)+5]])[0]
+                    st.markdown(f"""<div class="master-card" style="border-color:#00D4FF;">
+                        <h3 style="color:#00D4FF;">🧠 AI 5 GÜNLÜK TAHMİN</h3>
+                        <h2 style="color:white;">{last_p:.2f} ➔ {f_val:.2f} TL</h2>
+                        <p>Neden: Mevcut ivme %{((f_val/last_p)-1)*100:.2f} yönünde bir eğilim çiziyor.</p>
+                    </div>""", unsafe_allow_html=True)
+
+                # --- 4. ORTAKLIK YAPISI ---
+                if holders is not None:
+                    st.subheader("👥 Ortaklık ve Pay Yapısı")
+                    with st.expander("Büyük Hissedarları Görüntüle"):
+                        st.dataframe(holders, use_container_width=True)
+
+                # --- 5. GRAFİK VE ÖZET ---
+                fig = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.7, 0.3], vertical_spacing=0.05)
+                fig.add_trace(go.Candlestick(x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'], name="Fiyat"), row=1, col=1)
+                fig.add_trace(go.Scatter(x=df.index, y=df['SMA50'], line=dict(color='gold'), name="SMA50"), row=1, col=1)
+                fig.add_trace(go.Scatter(x=df.index, y=df['RSI'], line=dict(color='magenta'), name="RSI"), row=2, col=1)
+                fig.update_layout(height=600, template="plotly_dark", xaxis_rangeslider_visible=False)
                 st.plotly_chart(fig, use_container_width=True)
 
-            with tab2:
-                st.subheader("📋 Şirket Özeti ve Finansal Tablo")
-                st.info(fin['ozet'])
-                if balance is not None: st.dataframe(balance.iloc[:10, :4], use_container_width=True)
+                # GENEL ÖZET
+                green_c = sum(1 for color, val in L.values() if color == "green")
+                st.markdown(f"""<div class="master-card" style="border-left:10px solid #ff00ff;">
+                    <h3>🤖 Robotun Hoca Özeti</h3>
+                    <p>Hisse 10 testin {green_c}'inden başarıyla geçti. AI ve Bilanço verileri ışığında 
+                    { 'pozitif bir senaryo' if f_val > last_p and green_c > 6 else 'temkinli bir seyir' } izlenmektedir.</p>
+                </div>""", unsafe_allow_html=True)
 
-            with tab3:
-                st.subheader("🎲 30 Günlük Tarihli Simülasyon")
-                days = 30
-                returns = np.random.normal(0.001, 0.02, days)
-                sim_path = price * (1 + returns).cumprod()
-                dates = [datetime.now() + timedelta(days=i) for i in range(days)]
-                fig_sim = go.Figure(go.Scatter(x=dates, y=sim_path, name="Olası Yol", line=dict(color='#00D4FF')))
-                fig_sim.update_layout(template="plotly_dark", height=450, xaxis_title="Tahmini Tarih")
-                st.plotly_chart(fig_sim, use_container_width=True)
+                # METRİKLER VE ALARMLAR
+                m1, m2, m3 = st.columns([2, 2, 1])
+                row = p_df[p_df['symbol'] == active].iloc[0]
+                m1.metric("Anlık", f"{last_p:.2f} TL")
+                m2.metric("Kâr/Zarar", f"{(last_p - row['cost']) * row['qty']:,.0f} TL")
+                if m3.button("🗑️ SİL"):
+                    with sys.conn: sys.conn.execute(f"DELETE FROM {ut} WHERE symbol = ?", (active,))
+                    st.rerun()
+                if row['target'] > 0 and last_p >= row['target']: st.balloons(); st.success("🎯 HEDEF GÖRÜLDÜ!")
+                elif row['stop'] > 0 and last_p <= row['stop']: st.error("⚠️ STOP SEVİYESİ!")
 
-    st.markdown('<div class="yasal-uyari">⚠️ YATIRIM TAVSİYESİ DEĞİLDİR. (Master Robot V12 Stabil Demir)</div>', unsafe_allow_html=True)
+    st.markdown('<div class="yasal-uyari">⚠️ YATIRIM TAVSİYESİ DEĞİLDİR (YTD).</div>', unsafe_allow_html=True)
 
 if __name__ == "__main__": main()
