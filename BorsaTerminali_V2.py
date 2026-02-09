@@ -45,7 +45,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # =================================================================
-# 2. CANLI VERİ MOTORU (ARKA PLAN DİNLEYİCİ)
+# 2. CANLI VERİ MOTORU (DİNAMİK KONTROLLÜ)
 # =================================================================
 def ws_engine(url):
     async def listen():
@@ -126,7 +126,7 @@ class MasterSystemUltimate:
                 "fiyat": df['Close'].iloc[-1],
                 "halka_acik": (info.get("floatShares", 0) / info.get("sharesOutstanding", 1) * 100) if info.get("sharesOutstanding") else 0
             }
-            # GÖRSEL 2fe1a2 HATASINI ÇÖZEN KORUMA: Haber yoksa çökme, boş liste dön
+            # HABER KORUMASI: Liste boşsa program çökmez
             news = t.news if t.news else []
             return df, fin, news, t.quarterly_balance_sheet, t.quarterly_financials
         except: return None, None, [], None, None
@@ -137,7 +137,7 @@ class MasterSystemUltimate:
 def main():
     sys = MasterSystemUltimate()
     
-    # Görsel fca63f'den gelen Canlı Veri Anahtarınız
+    # Canlı Veri Anahtarınız
     WS_LINK = "wss://ws.7k2v9x1r0z8t4m3n5p7w.com/?init_data=user%3D%257B%2522id%2522%253A8479457745%252C%2522first_name%2522%253A%2522Hasan%2522%252C%2522last_name%2522%253A%2522%2522%252C%2522language_code%2522%253A%2522tr%2522%252C%2522allows_write_to_pm%2522%253Atrue%252C%2522photo_url%2522%253A%2522https%253A%255C%252F%255C%252Ft.me%255C%252Fi%255C%252Fuserpic%255C%252F320%255C%252FqFQnxlCiDCD3PBWXXq2LYBtQf6-xy3roI737vHv1ZzfLPtDDm6ILM1w-D0z51rMQ.svg%2522%257D%26chat_instance%3D6343175205638196527%26chat_type%3Dsender%26auth_date%3D1770599132%26signature%3DHBPngCoF21mUtuu4RR-a1AcI1IyYqBQjed1ADKfJXrM7zhXTfInvUuyNs3pPUysstbDdVpNUZXZC_zlWc5h3Aw%26hash%3D7c06577956860cbe621177d869355725b7a920ebc449cf12d7f263eefcc89bb0"
     
     st.sidebar.title("🔐 Master Giriş")
@@ -148,8 +148,8 @@ def main():
 
     with st.sidebar:
         st.divider()
-        # İSTEĞİNİZ: CANLI VERİ AÇ/KAPAT ANAHTARI
-        canli_mod = st.toggle("🛰️ Canlı Veriyi Aktif Et", value=True)
+        # İSTEĞİNİZ: CANLI VERİ VARSAYILAN OLARAK KAPALI GELİR
+        canli_mod = st.toggle("🛰️ Canlı Veriyi Aktif Et", value=False)
         if canli_mod:
             start_threads(WS_LINK)
             st.write(f"Durum: {'🟢 Canlı' if st.session_state.ws_connected else '🟡 Bağlanıyor...'}")
@@ -173,7 +173,7 @@ def main():
         df, fin, news, balance, financials = sys.fetch_full_data(active)
         
         if df is not None:
-            # Fiyat Seçimi (Canlı açıksa ve veri varsa canlıyı al, yoksa yfinance al)
+            # Fiyat Seçimi (Canlı açıksa canlıyı al, yoksa yfinance al)
             live_p = st.session_state.live_prices.get(active, fin['fiyat']) if canli_mod else fin['fiyat']
             row = p_df[p_df['symbol'] == active].iloc[0]
             
@@ -234,15 +234,14 @@ def main():
                             st.success(f"{'✅ GÜÇLÜ TOPLAMA' if buy > sell else '⚠️ SATIŞ BASKISI'}")
                         else: st.info("Takas verisi bekleniyor...")
                 else:
-                    st.warning("Bu verileri görmek için 'Canlı Veri' modunu açmalısınız.")
+                    st.warning("Bu verileri görmek için sol menüden 'Canlı Veri' modunu açmalısınız.")
 
-            # --- TAB 3: TEMEL ANALİZ & KAP HABER SEÇİMİ (HATANIN ÇÖZÜLDÜĞÜ YER) ---
+            # --- TAB 3: TEMEL ANALİZ & KAP HABER SEÇİMİ ---
             with tab3:
                 st.subheader("📰 KAP Haber Listesi")
-                # GÖRSEL 2fe1a2 ve 2fe91f'deki KeyError: n['title'] hatasını engelleyen can simidi:
                 if news and len(news) > 0:
                     secilen = st.selectbox("Açıklanacak Haberi Seçin:", [n['title'] for n in news])
-                    st.markdown(f'<div class="master-card"><b>Yorum:</b> {secilen[:100]}... haberinin piyasa etkisi analiz ediliyor.</div>', unsafe_allow_html=True)
+                    st.markdown(f'<div class="master-card"><b>Yorum:</b> {secilen[:100]}... haberi analiz ediliyor.</div>', unsafe_allow_html=True)
                 else:
                     st.warning("Bu hisse için güncel KAP haberi bulunamadı.")
                 
@@ -263,6 +262,6 @@ def main():
                 fig_sim.update_layout(template="plotly_dark", height=400, xaxis_title="Tahmini Tarih")
                 st.plotly_chart(fig_sim, use_container_width=True)
 
-    st.markdown('<div class="yasal-uyari">⚠️ YATIRIM TAVSİYESİ DEĞİLDİR. (Master Robot V12 Pro Max Ultimate)</div>', unsafe_allow_html=True)
+    st.markdown('<div class="yasal-uyari">⚠️ YATIRIM TAVSİYESİ DEĞİLDİR. (Master Robot V12 Pro Max Ultimate Final)</div>', unsafe_allow_html=True)
 
 if __name__ == "__main__": main()
