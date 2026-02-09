@@ -45,7 +45,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # =================================================================
-# 2. CANLI VERİ MOTORU (DİNAMİK KONTROLLÜ)
+# 2. CANLI VERİ MOTORU (ARKA PLAN DİNLEYİCİ)
 # =================================================================
 def ws_engine(url):
     async def listen():
@@ -126,7 +126,7 @@ class MasterSystemUltimate:
                 "fiyat": df['Close'].iloc[-1],
                 "halka_acik": (info.get("floatShares", 0) / info.get("sharesOutstanding", 1) * 100) if info.get("sharesOutstanding") else 0
             }
-            # HATAYI ÇÖZEN KORUMA: Haber yoksa boş liste döndür
+            # GÖRSEL 2fe1a2 HATASINI ÇÖZEN KORUMA: Haber yoksa çökme, boş liste dön
             news = t.news if t.news else []
             return df, fin, news, t.quarterly_balance_sheet, t.quarterly_financials
         except: return None, None, [], None, None
@@ -239,7 +239,8 @@ def main():
             # --- TAB 3: TEMEL ANALİZ & KAP HABER SEÇİMİ (HATANIN ÇÖZÜLDÜĞÜ YER) ---
             with tab3:
                 st.subheader("📰 KAP Haber Listesi")
-                if news: # image_2fd6b7 hatasını engelleyen can simidi
+                # GÖRSEL 2fe1a2 ve 2fe91f'deki KeyError: n['title'] hatasını engelleyen can simidi:
+                if news and len(news) > 0:
                     secilen = st.selectbox("Açıklanacak Haberi Seçin:", [n['title'] for n in news])
                     st.markdown(f'<div class="master-card"><b>Yorum:</b> {secilen[:100]}... haberinin piyasa etkisi analiz ediliyor.</div>', unsafe_allow_html=True)
                 else:
