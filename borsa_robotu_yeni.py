@@ -12,13 +12,11 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s', hand
 
 class BorsaAnalizMasterV11:
     def __init__(self):
-        # Mevcut bilgilerine sadık kalındı
         self.TOKEN = "8255121421:AAG1biq7jrgLFAbWmzOFs6D4wsPzoDUjYeM"
         self.CHAT_ID = "8479457745" 
         self.hisseler = self.bist_aktif_liste_getir()
 
     def bist_aktif_liste_getir(self):
-        """Karakter hatalarından arındırılmış tam liste"""
         logging.info("🔍 BIST Tam Liste Mühürleniyor...")
         return [
             "A1CAP", "ACSEL", "ADEL", "ADESE", "AEFES", "AFYON", "AGESA", "AGHOL", "AGROT", "AHGAZ",
@@ -47,7 +45,7 @@ class BorsaAnalizMasterV11:
         ]
 
     def analiz_yap(self):
-        logging.info(f"🚀 V11 - {len(self.hisseler)} Hisse İçin Zirve Analizi Başladı...")
+        logging.info(f"🚀 Master V11 - 253 Hisse İçin ŞAMPİYONLAR LİGİ Taraması Başladı...")
         for h in self.hisseler:
             try:
                 ticker = yf.Ticker(f"{h}.IS")
@@ -67,40 +65,41 @@ class BorsaAnalizMasterV11:
                 h_son = df['Volume'].iloc[-1]
                 hacim_patlamasi = h_son > (h_ort * 2.2)
                 
+                # --- PUANLAMA KRİTERLERİ ---
                 skor = 0
                 if fiyat > sma20: skor += 30
                 if fiyat > sma200: skor += 20
                 if 40 <= rsi <= 70: skor += 20
                 if hacim_patlamasi: skor += 30
 
-                if skor >= 80:
-                    vade = "KISA VADE (TAVAN ADAYI 🚀)" if hacim_patlamasi and rsi > 60 else "ORTA VADE (TREND TAKİBİ 📈)"
+                # --- %90 SÜZGECİ (Sadece 5-10 Hisse Odaklı) ---
+                if skor >= 90:
+                    vade = "KISA VADE (TAVAN ADAYI 🚀)" if hacim_patlamasi else "ORTA VADE (GÜÇLÜ TREND 📈)"
                     self.telegram_v11_gonder(h, fiyat, skor, vade, rsi, hacim_patlamasi, sma200)
                 
                 time.sleep(0.3) 
             except Exception: continue
 
     def telegram_v11_gonder(self, kod, fiyat, skor, vade, rsi, hp, s200):
-        # --- 🎓 6 CÜMLELİK DERİN EĞİTİM ANALİZİ ---
-        v_notu = "Hacimdeki agresif artış kısa vadeli tavan serisi potansiyelini mühürlemektedir." if hp else "Fiyatın ortalamalar üzerindeki istikrarlı seyri trendin gücünü koruyor."
-        r_notu = f"RSI indikatörünün {round(rsi,1)} seviyesinde olması, alım iştahının momentum kazandığını kanıtlıyor."
-        k_notu = f"Fiyatın {round(s200,2)} (SMA200) kalesi üzerinde olması ana yönün boğa olduğunu gösterir."
+        v_notu = "Hacimdeki devasa artış agresif para girişini mühürlemektedir." if hp else "İstikrarlı hacim ve fiyat dengesi yükseliş trendini destekliyor."
+        r_notu = f"RSI indikatörünün {round(rsi,1)} seviyesinde mühürlenmesi momentumun en üst seviyede olduğunu kanıtlıyor."
+        k_notu = f"Fiyatın {round(s200,2)} (SMA200) kalesi üzerindeki kararlı seyri güvenli boğa bölgesinde olduğumuzu gösterir."
         
         analiz_metni = (
-            f"#{kod} hissesinde teknik verilerin %{skor} uyumlulukla çakıştığı saptanmıştır. "
+            f"#{kod} hissesi %{skor} skorla Şampiyonlar Ligi radarına girmiştir. "
             f"Matematiksel modelimiz bu hisseyi {vade} kategorisinde mühürlemiştir. "
             f"{v_notu} {r_notu} {k_notu} "
-            f"Hacim onayı ile desteklenen bu yükseliş, akıllı paranın hisseye giriş yaptığını teyit etmektedir. "
-            f"Eğitim disiplini gereği, ana trend desteklerinin altına sarkmalarda stop kurallarına sadık kalınmalıdır."
+            f"Hacim onayı ve teknik disiplinimiz gereği bu hisse portföy odağında olmalıdır. "
+            f"Eğitim notu: Ana desteklerin altında stop disiplinine sadık kalmak başarının anahtarıdır."
         )
 
-        msg = f"🚀 <b>MASTER V11: {vade}</b> 🚀\n"
+        msg = f"🏆 <b>MASTER V11: ŞAMPİYONLAR LİGİ</b> 🏆\n"
         msg += f"━━━━━━━━━━━━━━━━━━━━\n"
         msg += f"<b>#{kod} | SKOR: %{skor}</b>\n\n"
-        msg += f"💡 <b>EĞİTİM VE STRATEJİ NOTU:</b>\n{html.escape(analiz_metni)}\n\n"
+        msg += f"💡 <b>DERİN ANALİZ VE EĞİTİM:</b>\n{html.escape(analiz_metni)}\n\n"
         msg += f"────────────────────\n"
         msg += f"📊 <b>Fiyat:</b> {round(fiyat, 2)} TL | 📅 <b>Vade:</b> {vade}\n"
-        msg += f"🔗 <a href='https://tr.tradingview.com/symbols/BIST-{kod}'>Grafik Detayı</a>\n"
+        msg += f"🔗 <a href='https://tr.tradingview.com/symbols/BIST-{kod}'>Grafiği Mühürle</a>\n"
         msg += f"━━━━━━━━━━━━━━━━━━━━"
 
         requests.post(f"https://api.telegram.org/bot{self.TOKEN}/sendMessage", 
